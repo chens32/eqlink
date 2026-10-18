@@ -1,0 +1,54 @@
+<Window x:Class="EqLink.ClientGui.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="EqLink" Width="510" Height="600"
+        MinWidth="510" MinHeight="520" Background="#F6F8FB" WindowStartupLocation="CenterScreen">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="EqLink" FontSize="28" FontWeight="SemiBold" Foreground="#15233B" />
+        <Border Grid.Row="1" Margin="0,16,0,0" Padding="16" CornerRadius="8" Background="White">
+            <StackPanel>
+                <TextBlock x:Name="ConnectionText" Text="正在读取状态…" FontSize="18" FontWeight="SemiBold"/>
+                <TextBlock x:Name="DeviceText" Margin="0,8,0,0" Text="设备：未导入"/>
+                <TextBlock x:Name="AddressText" Margin="0,4,0,0" Text="虚拟 IP：—"/>
+                <TextBlock x:Name="PathText" Margin="0,4,0,0" Text="当前路径：—"/>
+                <TextBlock x:Name="EgressText" Margin="0,4,0,0" Text="出口网卡：系统路由"/>
+                <TextBlock x:Name="ProtectionText" Margin="0,4,0,0" Text="虚拟网段保护：正在读取" TextWrapping="Wrap"/>
+                <TextBlock x:Name="MessageText" Margin="0,10,0,0" TextWrapping="Wrap" Foreground="#586579"/>
+            </StackPanel>
+        </Border>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,18,0,0">
+            <TextBlock Text="连接模式" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <ComboBox x:Name="ModeBox" Width="150" SelectedIndex="0">
+                <ComboBoxItem Content="自动" Tag="Auto"/><ComboBoxItem Content="仅 UDP" Tag="UdpOnly"/>
+                <ComboBoxItem Content="仅 TCP" Tag="TcpOnly"/>
+            </ComboBox>
+            <Button Content="应用模式" Margin="10,0,0,0" Padding="12,6" Click="ApplyMode_Click"/>
+        </StackPanel>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,18,0,0">
+            <Button Content="连接" Width="100" Padding="10,7" Click="Connect_Click"/>
+            <Button Content="断开" Width="100" Margin="10,0,0,0" Padding="10,7" Click="Disconnect_Click"/>
+            <Button Content="导入设备包" Margin="10,0,0,0" Padding="12,7" Click="Browse_Click"/>
+        </StackPanel>
+        <StackPanel Grid.Row="4" Margin="0,18,0,0">
+            <TextBlock x:Name="BundleText" Text="尚未选择导入包" Foreground="#586579" TextTrimming="CharacterEllipsis"/>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="导入密码" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <PasswordBox x:Name="PassphraseBox" Width="240"/>
+                <Button Content="确认导入" Margin="10,0,0,0" Padding="10,5" Click="Import_Click"/>
+            </StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Row="5" Margin="0,16,0,0">
+            <Button x:Name="EgressSettingsButton" Content="出口设置…" Padding="12,6" HorizontalAlignment="Left" Click="Egress_Click"/>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <Button x:Name="ProtectionButton" Content="关闭网段保护" Padding="12,6" Click="Protection_Click" ToolTip="断开后以管理员身份修改；仅影响当前 EqLink 虚拟网段"/>
+                <Button Content="导出诊断…" Margin="10,0,0,0" Padding="12,6" Click="Diagnostics_Click"/>
+            </StackPanel>
+            <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Foreground="#66758A"
+                       Text="连接建立后，使用管理员提供的虚拟 IP 访问其他 EqLink 设备。切换路径会中断现有应用连接。"/>
+        </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</Window>

@@ -1,0 +1,46 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": { "name": "eqlink-server", "namespace": "eqlink-test", "labels": { "app.kubernetes.io/managed-by": "eqlink-test-packer" } },
+  "spec": {
+    "replicas": 1,
+    "strategy": { "type": "Recreate" },
+    "selector": { "matchLabels": { "app": "eqlink-server" } },
+    "template": {
+      "metadata": { "labels": { "app": "eqlink-server" } },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "terminationGracePeriodSeconds": 30,
+        "nodeSelector": { "kubernetes.io/arch": "arm64", "kubernetes.io/os": "linux" },
+        "affinity": { "nodeAffinity": { "requiredDuringSchedulingIgnoredDuringExecution": { "nodeSelectorTerms": [ { "matchFields": [ { "key": "metadata.name", "operator": "In", "values": [ "REPLACE_NODE" ] } ] } ] } } },
+        "containers": [ {
+          "name": "server",
+          "image": "docker.io/eqlink/server:0.2.0-k3s-test-arm64",
+          "imagePullPolicy": "Never",
+          "args": [ "serve", "--settings", "/run/eqlink-bootstrap/server-settings.json" ],
+          "securityContext": { "runAsUser": 0, "runAsGroup": 0, "privileged": false, "readOnlyRootFilesystem": true, "allowPrivilegeEscalation": false, "capabilities": { "drop": ["ALL"], "add": ["NET_ADMIN"] }, "seccompProfile": { "type": "RuntimeDefault" } },
+          "env": [ { "name": "EQLINK_RUNTIME", "value": "container" }, { "name": "DOTNET_BUNDLE_EXTRACT_BASE_DIR", "value": "/tmp/.net" } ],
+          "resources": { "requests": { "cpu": "100m", "memory": "192Mi", "armhpc.home.arpa/tun": "1" }, "limits": { "cpu": "2", "memory": "1Gi", "armhpc.home.arpa/tun": "1" } },
+          "ports": [ { "name": "reality", "containerPort": 30443, "protocol": "TCP" }, { "name": "hysteria", "containerPort": 30444, "protocol": "UDP" } ],
+          "startupProbe": { "exec": { "command": [ "/usr/local/bin/EqLink.Server", "probe", "--kind", "live" ] }, "periodSeconds": 5, "timeoutSeconds": 5, "failureThreshold": 60 },
+          "livenessProbe": { "exec": { "command": [ "/usr/local/bin/EqLink.Server", "probe", "--kind", "live" ] }, "periodSeconds": 10, "timeoutSeconds": 5, "failureThreshold": 3 },
+          "readinessProbe": { "exec": { "command": [ "/usr/local/bin/EqLink.Server", "probe", "--kind", "ready" ] }, "periodSeconds": 3, "timeoutSeconds": 5, "failureThreshold": 2 },
+          "volumeMounts": [
+            { "name": "data", "mountPath": "/etc/eqlink" },
+            { "name": "runtime", "mountPath": "/run/eqlink" },
+            { "name": "tmp", "mountPath": "/tmp" },
+            { "name": "bootstrap", "mountPath": "/run/eqlink-bootstrap", "readOnly": true },
+            { "name": "tls", "mountPath": "/run/eqlink-tls", "readOnly": true }
+          ]
+        } ],
+        "volumes": [
+          { "name": "data", "persistentVolumeClaim": { "claimName": "eqlink-data" } },
+          { "name": "runtime", "emptyDir": { "medium": "Memory", "sizeLimit": "16Mi" } },
+          { "name": "tmp", "emptyDir": { "sizeLimit": "512Mi" } },
+          { "name": "bootstrap", "secret": { "secretName": "eqlink-bootstrap", "defaultMode": 256 } },
+          { "name": "tls", "secret": { "secretName": "eqlink-tls", "defaultMode": 256 } }
+        ]
+      }
+    }
+  }
+}

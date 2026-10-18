@@ -1,0 +1,26 @@
+name: 故障报告
+description: 提交脱敏的现象、版本和复现步骤。
+body:
+  - type: markdown
+    attributes:
+      value: 请先阅读 SECURITY.md。不要附密码、私钥、设备包、Cookie、原始运行配置或未脱敏抓包。
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境与版本
+      description: 客户端/服务端版本、操作系统、连接模式、是否存在其他 TUN；隐藏真实公网和内网身份。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤与预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: 实际结果及脱敏错误码/时间线
+      description: 区分 passed、failed、skipped、unavailable，并说明故障注入是否确认生效。
+    validations:
+      required: true

@@ -1,0 +1,107 @@
+{
+  "openvpn_windows_amd64": {
+    "version": "2.7.7-I001",
+    "url": "https://swupdate.openvpn.org/community/releases/OpenVPN-2.7.7-I001-amd64.msi",
+    "sha256": "9069a48397c4fd4135fb9c9baea4863c74a465651f67e55a423a433e503100bb"
+  },
+  "hysteria_windows_amd64": {
+    "version": "2.12.3",
+    "url": "https://github.com/HyNetworks/hysteria/releases/download/app/v2.12.3/hysteria-windows-amd64.exe",
+    "sha256": "31c0fb6a92beac7fc43bef6e8a31ce681eac29d78feef7a5884f2c797bfdba24"
+  },
+  "hysteria_linux_amd64": {
+    "version": "2.12.3",
+    "url": "https://github.com/HyNetworks/hysteria/releases/download/app/v2.12.3/hysteria-linux-amd64",
+    "sha256": "8c7a68a906998b747a0db87586e364f995fbfddb95693ae6e2fdb68a6e920d3e"
+  },
+  "hysteria_linux_arm64": {
+    "version": "2.12.3",
+    "url": "https://github.com/HyNetworks/hysteria/releases/download/app/v2.12.3/hysteria-linux-arm64",
+    "sha256": "c8dc653c3ba0a28d29a26b8fa52d2086f27c0927afddce95c09965e7174e78b0"
+  },
+  "hysteria_license": {
+    "version": "2.12.3",
+    "url": "https://raw.githubusercontent.com/HyNetworks/hysteria/app/v2.12.3/LICENSE.md",
+    "sha256": "b279cfdac4db4b077f0660b5d8156d50a8bc7bd410036dc356499af43c4e84f5"
+  },
+  "xray_windows_amd64": {
+    "version": "26.3.27",
+    "url": "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-windows-64.zip",
+    "sha256": "d004c39288ce9ada487c6f398c7c545f7d749e44bdfdd59dbc9f865afba4e1ad"
+  },
+  "xray_linux_amd64": {
+    "version": "26.3.27",
+    "url": "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip",
+    "sha256": "23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
+  },
+  "xray_linux_arm64": {
+    "version": "26.3.27",
+    "url": "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-arm64-v8a.zip",
+    "sha256": "4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
+  },
+  "dotnet_runtime_win_x64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.runtime.win-x64/10.0.12/microsoft.netcore.app.runtime.win-x64.10.0.12.nupkg",
+    "sha256": "0f63dee7ca4383cb16848966f81e439399e2058e1671ebe27e5eaf4b200e8691"
+  },
+  "dotnet_desktop_runtime_win_x64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windowsdesktop.app.runtime.win-x64/10.0.12/microsoft.windowsdesktop.app.runtime.win-x64.10.0.12.nupkg",
+    "sha256": "68bce56d2402969d82ac77fbd2b2a54f55fda86ea060366e6ddb832353dab80a"
+  },
+  "dotnet_aspnet_runtime_win_x64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.aspnetcore.app.runtime.win-x64/10.0.12/microsoft.aspnetcore.app.runtime.win-x64.10.0.12.nupkg",
+    "sha256": "59025d88c8f5178e8569f91c7cbc56ad3ead3d83a777477d17fade3f9cdd8103"
+  },
+  "dotnet_illink_tasks": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.net.illink.tasks/10.0.12/microsoft.net.illink.tasks.10.0.12.nupkg",
+    "sha256": "37aa984da51fdc01cc7d57a8647893392f3539cdd5a1d32ce4982be5309bc08b"
+  },
+  "dotnet_runtime_linux_x64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.runtime.linux-x64/10.0.12/microsoft.netcore.app.runtime.linux-x64.10.0.12.nupkg",
+    "sha256": "8869e2fb974bc810ffe40b8fb8e18b7ffb1d1a03e52a094c804668c4d793b1ae"
+  },
+  "dotnet_host_linux_x64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.host.linux-x64/10.0.12/microsoft.netcore.app.host.linux-x64.10.0.12.nupkg",
+    "sha256": "b62638d76d67a03e7f1f905f64eba792a4ff1c1ef42875b1ad8f8f8ddea8da87"
+  },
+  "dotnet_runtime_linux_arm64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.runtime.linux-arm64/10.0.12/microsoft.netcore.app.runtime.linux-arm64.10.0.12.nupkg",
+    "sha256": "7268839dca1ec677d4c9908b4e52395d4c003c6989550d0b8e965923a4a70036"
+  },
+  "dotnet_host_linux_arm64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.host.linux-arm64/10.0.12/microsoft.netcore.app.host.linux-arm64.10.0.12.nupkg",
+    "sha256": "bd566dc6e4084ccba0d3f48a0c4085d2b50c00ba0340b65fab32177fd17470a0"
+  },
+  "dotnet_aspnet_runtime_linux_x64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.aspnetcore.app.runtime.linux-x64/10.0.12/microsoft.aspnetcore.app.runtime.linux-x64.10.0.12.nupkg",
+    "sha256": "5e3883d280dac567a4bc19a52a75669bf96e24bd41e29ec9ea1baafbd1a6a800"
+  },
+  "dotnet_aspnet_runtime_linux_arm64": {
+    "version": "10.0.12",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.aspnetcore.app.runtime.linux-arm64/10.0.12/microsoft.aspnetcore.app.runtime.linux-arm64.10.0.12.nupkg",
+    "sha256": "6230fef2f688f3db9e6450a8b5798e08681097b519d10cea38bb63b784e1cc5a"
+  },
+  "wix_cli": {
+    "version": "5.0.2",
+    "url": "https://api.nuget.org/v3-flatcontainer/wix/5.0.2/wix.5.0.2.nupkg",
+    "sha256": "f30ef0c74e2a986126539c5780be93ac24e8136eaf723b1937b26272703ae173"
+  },
+  "wix_bal": {
+    "version": "5.0.2",
+    "url": "https://api.nuget.org/v3-flatcontainer/wixtoolset.bal.wixext/5.0.2/wixtoolset.bal.wixext.5.0.2.nupkg",
+    "sha256": "22422b50a925477e33c2b5f78d2965a9a09c6622d17ba5aa5365b20ec662b7c8"
+  },
+  "wix_util": {
+    "version": "5.0.2",
+    "url": "https://api.nuget.org/v3-flatcontainer/wixtoolset.util.wixext/5.0.2/wixtoolset.util.wixext.5.0.2.nupkg",
+    "sha256": "dda1cc1b4d3b2305b1246f167c6af6fcded5000be84b3bbff3dda4f442bf4740"
+  }
+}

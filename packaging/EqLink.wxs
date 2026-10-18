@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- ProductCode is stable within this test release; rotate it for the next major upgrade. -->
+  <Package Name="EqLink" Manufacturer="EqLink" Version="0.2.0" ProductCode="9F3D78FB-05FB-41AA-A340-1A3665FF28E2" UpgradeCode="A2D65259-0504-4A2F-969A-2660B3E8C0CD" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer EqLink version is installed." Schedule="afterInstallInitialize" />
+    <!-- 0.1.x apphosts used FileVersion 1.0.x. Permit the intentional correction to
+         the product's 0.2.0 version during a detected major upgrade, before costing. -->
+    <SetProperty Id="REINSTALLMODE" Value="amus" Before="CostInitialize" Sequence="both" Condition="WIX_UPGRADE_DETECTED" />
+    <CustomAction Id="RemoveEqLinkProtection" FileRef="ServiceExecutable" ExeCommand="--network-protection-remove" Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="RemoveEqLinkProtection" After="StopServices" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="EqLink">
+        <Component Id="ServiceComponent" Guid="*">
+          <File Id="ServiceExecutable" Source="!(bindpath.Stage)\EqLink.ClientService.exe" KeyPath="yes" />
+          <ServiceInstall Id="EqLinkService" Name="EqLink" DisplayName="EqLink VPN" Description="EqLink local VPN controller"
+                          Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" />
+          <ServiceControl Id="EqLinkServiceControl" Name="EqLink" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+        </Component>
+        <Component Id="GuiComponent" Guid="*">
+          <File Id="GuiExecutable" Source="!(bindpath.Stage)\EqLink.ClientGui.exe" KeyPath="yes">
+            <Shortcut Id="EqLinkMenuShortcut" Directory="ProgramMenuFolder" Name="EqLink" WorkingDirectory="INSTALLFOLDER" Advertise="no" />
+          </File>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main" Title="EqLink" Level="1">
+      <Files Directory="INSTALLFOLDER" Include="!(bindpath.Stage)\**">
+        <Exclude Files="!(bindpath.Stage)\EqLink.ClientService.exe" />
+        <Exclude Files="!(bindpath.Stage)\EqLink.ClientGui.exe" />
+      </Files>
+      <ComponentRef Id="ServiceComponent" />
+      <ComponentRef Id="GuiComponent" />
+    </Feature>
+  </Package>
+</Wix>

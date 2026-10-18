@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Bundle Name="EqLink" Manufacturer="EqLink" Version="0.2.0" UpgradeCode="CB68C1F5-90D8-4BFC-AD18-C795B33A2D5B">
+    <Variable Name="InstalledOpenVpnVersion" Type="version" Value="0.0.0.0" />
+    <util:FileSearch Id="OpenVpnExecutable" Path="[ProgramFiles64Folder]OpenVPN\bin\openvpn.exe" Variable="InstalledOpenVpnVersion" Result="version" />
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" />
+    </BootstrapperApplication>
+    <Chain>
+      <MsiPackage Id="OpenVPN" SourceFile="!(bindpath.Dependencies)\OpenVPN-2.7.7-I001-amd64.msi" InstallCondition="InstalledOpenVpnVersion &lt; v2.6.0.0" Permanent="yes" Visible="yes" />
+      <MsiPackage Id="EqLink" SourceFile="!(bindpath.Package)\EqLink.msi" />
+    </Chain>
+  </Bundle>
+</Wix>
