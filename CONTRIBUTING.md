@@ -16,7 +16,9 @@ git diff --check
 
 Windows 上还应编译 ClientGui、ClientService 和对应测试项目。Python 清单测试依赖 `.github/requirements-ci.txt`；官方 Kubernetes schema 的准备方式见 CI 工作流。
 
-CI 运行源码边界与历史秘密扫描、离线清单/升级检查、Windows/Linux 核心测试及 Windows 客户端编译。CI 不执行真实服务器部署、WFP 修改、网卡故障或安装卸载；绿色 CI 不能代替这些验收。
+当前 GitHub CI 已暂停，工作流只保留手动入口，仓库中的工作流也已停用；后续按项目进度明确恢复。开发期间按需执行本地检查。
+
+恢复后，现有 CI 配置覆盖源码边界与历史秘密扫描、离线清单/升级检查、Windows/Linux 核心测试及 Windows 客户端编译。CI 不执行真实服务器部署、WFP 修改、网卡故障或安装卸载；绿色 CI 不能代替这些验收。
 
 ## 提交要求
 

@@ -26,6 +26,8 @@
 
 ## CI 范围
 
-CI 仅运行源码卫生/历史扫描、离线部署检查、跨平台核心测试和 Windows 编译。它不会部署服务端、操作生产身份、修改 WFP 或运行安装器。完整验收按 [验收清单](acceptance.md)和[执行工具](../packaging/acceptance/README.zh-CN.md)另行执行；未执行项保持 skipped/unavailable。
+GitHub CI 当前暂停：已移除 push/PR 自动触发，仓库工作流已停用，仅保留供后续恢复使用的手动配置。此前成功运行的结果保留为历史记录。
+
+现有 CI 配置仅覆盖源码卫生/历史扫描、离线部署检查、跨平台核心测试和 Windows 编译。它不会部署服务端、操作生产身份、修改 WFP 或运行安装器。完整验收按 [验收清单](acceptance.md)和[执行工具](../packaging/acceptance/README.zh-CN.md)另行执行；未执行项保持 skipped/unavailable。
 
 原始诊断、抓包和私密回滚材料留在本地受限证据目录，未纳入 Git。需要复核时由管理员按脱敏和授权范围提供。

@@ -6,6 +6,8 @@
 
 开发与维护：[环境要求](docs/development.md) · [贡献说明](CONTRIBUTING.md) · [安全报告](SECURITY.md) · [更新记录](CHANGELOG.md)。项目级许可证尚未指定；第三方组件遵循各自许可证，见 [THIRD_PARTY](packaging/THIRD_PARTY.md)。
 
+GitHub CI 当前暂停，已取消 push/PR 自动触发并停用仓库工作流；保留配置供项目接近完成后明确恢复。开发期间按需进行本地验证。
+
 EqLink 是单服务器、Windows 客户端的虚拟 IPv4 网络。设备用固定虚拟 IP 访问服务端及其他设备，支持 ping、TCP 和 UDP。首版不提供物理局域网路由、全局上网代理或设备名发现。
 
 ```text
