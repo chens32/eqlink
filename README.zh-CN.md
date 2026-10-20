@@ -6,7 +6,7 @@ EqLink 为 Windows 设备提供由单台 Linux 服务端承载的虚拟 IPv4 网
 
 内层采用 **OpenVPN TCP**，外层优先 **Hysteria 2 / UDP**，回退 **VLESS + XHTTP + REALITY / TCP**。
 
-**v1.0.0 当前作为发布草稿准备，完整验收尚未完成。** 本次构建、CI、隔离测试和历史两地测试各有范围，详见[发布说明](docs/release-1.0.0.zh-CN.md)和[验收状态](docs/validation-status.md)。
+**[v1.0.0 已发布](https://github.com/chens32/eqlink/releases/tag/v1.0.0)，完整验收尚未完成。** 本次构建、CI、隔离测试和历史两地测试各有范围，详见[发布说明](docs/release-1.0.0.zh-CN.md)和[验收状态](docs/validation-status.md)。
 
 ## 主要功能
 
@@ -17,7 +17,7 @@ EqLink 为 Windows 设备提供由单台 Linux 服务端承载的虚拟 IPv4 网
 - 指定物理出口与专用 DNS，可与 Meta 等 TUN 共存。
 - WFP 为已配置虚拟 IPv4 网段提供阻断和受限放行。
 - WPF 界面显示连接状态、本机 TCP 连接数、虚拟网卡上下行速率、诊断与按网络保存的域名覆写。
-- Debian/Ubuntu amd64、arm64 服务端，以及 ARM64 k3s 离线部署与升级工具。
+- Debian/Ubuntu amd64、arm64 服务端，以及 Kubernetes/k3s 镜像构建、部署与升级工具。
 
 ## 接入流程
 
@@ -33,19 +33,21 @@ EqLink 为 Windows 设备提供由单台 Linux 服务端承载的虚拟 IPv4 网
 
 ### Windows 客户端
 
-1. 使用 Windows 10/11 x64。发布公开后下载 `EqLink-Setup-1.0.0.exe`，核对 SHA-256。
+1. 使用 Windows 10/11 x64。下载 [eqlink-client-1.0.0.exe](https://github.com/chens32/eqlink/releases/download/v1.0.0/eqlink-client-1.0.0.exe)，与 GitHub 附件摘要核对 SHA-256。
 2. 以管理员授权安装。单入口安装器处理 EqLink 与固定版本官方 OpenVPN 依赖；卸载 EqLink 保留 OpenVPN 和其他配置。
 3. 在“设备与诊断”导入管理员提供的当前 v2 包，保持自动地址或填写静态申请，点击连接。
 4. 如果本机运行 Meta 等 TUN，在连接设置选择实际物理网卡与专用 DNS；无需停用 Meta。
 5. 使用设备虚拟 IP 访问服务。需要域名时，可在“域名覆写”保存 `10.88.0.20 service.example.internal` 等条目。
 
-安装器包含自包含 .NET 运行时。除非清单明确注明签名，草稿构建未签名。通用包是可复用入网凭据，持有人在授权有效时可以登记新身份；不要公开上传包正文、本机身份数据或私钥。
+安装器包含自包含 .NET 运行时，当前安装器未签名。通用包是可复用入网凭据，持有人在授权有效时可以登记新身份；不要公开上传包正文、本机身份数据或私钥。
 
 ### Linux / k3s 服务端
 
 宿主机要求 Debian/Ubuntu、amd64 或 arm64、TUN、OpenVPN 2.6+、OpenSSL、iproute2、Python 和 systemd。安装与网络配置需要 root/sudo，见[宿主机安装说明](docs/server-installation.md)。
 
-ARM64 k3s 使用[离线包说明](packaging/k3s/README.zh-CN.md)：单副本、固定节点、Recreate、PVC、高端口 NodePort、仅 NET_ADMIN、只读根文件系统和 TUN 资源预检。首次安装与既有部署升级分别使用 deploy.py 和 upgrade.py；保留既有 CA、REALITY 密钥、地址、VIP 与管理网关扩展。
+Kubernetes/k3s 使用同一份 Linux 服务端包构建镜像，见[安装说明](docs/kubernetes-installation.zh-CN.md)。支持 amd64/arm64，保持单副本、固定节点、Recreate、PVC、高端口 NodePort、仅 NET_ADMIN、只读根文件系统和 TUN 资源预检。首次安装与既有部署升级分别使用 deploy.py 和 upgrade.py；保留既有 CA、REALITY 密钥、地址、VIP 与管理网关扩展。
+
+每个 release 固定上传 `eqlink-client-X.Y.Z.exe` 和两份 `eqlink-server-{arm64,amd64}-X.Y.Z.tar.gz`，Kubernetes 离线镜像、MSI、工具和验收材料保留在本地。后续发布遵循[发布流程](docs/releasing.md)。
 
 ## 边界与验收
 

@@ -28,6 +28,8 @@ Primary pinned references:
 
 `packaging/prepare-licenses.py` copies the pinned component notices and runtime-pack notices into Windows and Linux build staging directories. Release manifests identify every shipped asset and its SHA-256. The EqLink source archive is collected from the committed Git tree, not from local runtime directories.
 
+Standard GitHub releases follow the [three-file asset policy](releasing.md). Project source is available from the release tag and GitHub's generated source-code links; local source archives, manifests and acceptance evidence remain with the build records. Removing separate notice/source attachments does not remove notices embedded in the packages or change any corresponding-source obligations.
+
 GPLv3 for EqLink does **not** eliminate OpenVPN's GPLv2 source obligations, Xray's MPL obligations, Debian package obligations, or third-party notice requirements. An upstream homepage link by itself is not recorded as proof of complete corresponding-source compliance. Source acquisition/provenance and any unresolved redistribution gates are recorded in the draft release acceptance record. The release must remain a draft until these gates are resolved and reviewed.
 
 The existing test bundle included an embedded official OpenVPN MSI. This review preserves that installer architecture and records its redistribution requirements explicitly. Do not publish the draft on the strength of the license inventory alone.

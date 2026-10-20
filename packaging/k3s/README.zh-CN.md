@@ -1,5 +1,7 @@
 # EqLink 1.0.0 ARM64 k3s 离线包（发布草稿）
 
+> 此处描述可选的内部离线构建产物，不再作为标准 release 附件上传。新部署优先使用对应架构的 Linux 服务端包构建镜像，完整步骤见[当前 Kubernetes/k3s 安装说明](../../docs/kubernetes-installation.zh-CN.md)。标准 release 只有 Windows 一键安装器与 amd64/arm64 服务端三个文件。
+
 包含离线 Docker 镜像、首次部署、v2 常规升级、旧身份迁移、设备/入网授权管理与完整 SHA-256。公网高端口默认 TCP30443、UDP30444，不增加公开登记端口。
 
 ## 节点与权限

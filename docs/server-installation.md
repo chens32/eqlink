@@ -9,7 +9,7 @@
 
 ## New host installation
 
-Download the matching archive from the release and verify `SHA256SUMS`. Extract it into a dedicated directory. Install host prerequisites with the distribution package manager:
+Download the matching `eqlink-server-{amd64,arm64}-X.Y.Z.tar.gz` archive from the release and compare its SHA-256 with the asset's `digest` in the GitHub release API. There is no separate checksum attachment. The [Kubernetes guide](kubernetes-installation.md#1-download-and-build) includes a download/digest-verification example. Extract into a dedicated directory. Install host prerequisites with the distribution package manager:
 
 ```bash
 sudo apt-get update
@@ -42,6 +42,6 @@ Do not rerun initialization or regenerate network keys. Use `eqlink-server backu
 
 ## k3s
 
-Use the ARM64 offline package and its [deployment/upgrade instructions](../packaging/k3s/README.zh-CN.md). Import the image on the explicitly selected node; verify the TUN resource is allocatable. The package uses one replica, Recreate, a PVC, fixed-node scheduling, high NodePorts, `NET_ADMIN` only, read-only root, no privilege escalation and RuntimeDefault seccomp. `deploy.py` is for first installation; `upgrade.py` prepares a reviewed plan and preserves external startup/probe/mount/gateway extensions.
+Use the [Kubernetes/k3s installation guide](kubernetes-installation.md) to build an amd64/arm64 image from the matching server archive. Import the image on the explicitly selected node; verify the TUN resource is allocatable. The deployment uses one replica, Recreate, a PVC, fixed-node scheduling, high NodePorts, `NET_ADMIN` only, read-only root, no privilege escalation and RuntimeDefault seccomp. `deploy.py` is for first installation; `upgrade.py` prepares a reviewed plan and preserves external startup/probe/mount/gateway extensions.
 
 The package does not install a TUN device plugin or change the router's NAT mappings. Existing cluster CAs, REALITY keys, identities, addresses, VIPs and external Rancher gateways must be preserved during upgrade.

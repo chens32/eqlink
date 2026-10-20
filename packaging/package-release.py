@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect v1.0.0 draft artifacts from a clean committed source tree."""
+"""Collect release evidence locally and stage exactly three binaries in upload/."""
 import argparse
 import gzip
 import hashlib
@@ -11,6 +11,7 @@ import subprocess
 import tarfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from release_assets import stage_uploads
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 VERSION = ET.parse(ROOT / 'Directory.Build.props').findtext('./PropertyGroup/Version')
@@ -29,8 +30,8 @@ def git(*args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--acceptance', required=True, type=pathlib.Path)
-    parser.add_argument('--without-k3s', action='store_true')
-    parser.add_argument('--without-tools', action='store_true')
+    parser.add_argument('--include-k3s', action='store_true', help='Collect optional offline image/evidence locally, never as release attachments')
+    parser.add_argument('--include-tools', action='store_true', help='Collect optional acceptance tools locally, never as release attachments')
     args = parser.parse_args()
     status = git('status', '--porcelain', '--untracked-files=all')
     if status.strip():
@@ -40,7 +41,7 @@ def main():
         raise SystemExit('Draft acceptance record must match version and preserve incomplete gates')
     OUT.mkdir(parents=True, exist_ok=True)
     files = {
-        f'EqLink-Setup-{VERSION}.exe': 'artifacts/package/EqLink-Setup.exe',
+        f'eqlink-client-{VERSION}.exe': 'artifacts/package/EqLink-Setup.exe',
         f'EqLink-{VERSION}.msi': 'artifacts/package/EqLink.msi',
         f'eqlink-server-amd64-{VERSION}.tar.gz': 'artifacts/server/eqlink-server-amd64.tar.gz',
         f'eqlink-server-arm64-{VERSION}.tar.gz': 'artifacts/server/eqlink-server-arm64.tar.gz',
@@ -50,9 +51,9 @@ def main():
         'LICENSE': 'LICENSE', 'NOTICE': 'NOTICE', 'THIRD_PARTY.md': 'packaging/THIRD_PARTY.md',
         'LICENSING.md': 'docs/licensing.md',
     }
-    if not args.without_k3s:
+    if args.include_k3s:
         files[f'eqlink-k3s-arm64-{VERSION}.tar.gz'] = f'artifacts/k3s/eqlink-k3s-arm64-{VERSION}.tar.gz'
-    if not args.without_tools:
+    if args.include_tools:
         files[f'eqlink-tests-{VERSION}.zip'] = f'artifacts/tools/eqlink-tests-{VERSION}.zip'
     for name, source in files.items():
         if not (ROOT / source).is_file():
@@ -66,7 +67,7 @@ def main():
             compressed.write(archive)
     shutil.copy2(args.acceptance, OUT / 'ACCEPTANCE.json')
     provenance = None
-    if not args.without_k3s:
+    if args.include_k3s:
         provenance = json.loads((ROOT / 'artifacts/k3s/PROVENANCE.json').read_text())
         for name, checksum in provenance['sourceSha256'].items():
             if digest(ROOT / name) != checksum:
@@ -79,15 +80,17 @@ def main():
                           for member in source.getmembers() if member.isfile()}
     if archive_hashes != source_hashes:
         raise SystemExit('Source archive differs from committed blobs; refusing to publish a mismatched manifest')
+    upload_assets = stage_uploads(OUT, VERSION)
     artifacts = {p.name: {'bytes': p.stat().st_size, 'sha256': digest(p)} for p in sorted(OUT.iterdir()) if p.is_file() and p.name not in ('release-manifest.json', 'SHA256SUMS')}
     manifest = {'schemaVersion': 1, 'version': VERSION, 'channel': 'draft', 'createdUtc': datetime.now(timezone.utc).isoformat(),
                 'source': {'gitHead': head, 'gitTree': git('rev-parse', 'HEAD^{tree}').decode().strip(), 'workingTreeDirty': False, 'sha256': source_hashes},
-                'artifacts': artifacts, 'k3sProvenance': provenance, 'fullOriginalAcceptanceComplete': False,
+                'artifacts': artifacts, 'releaseUploads': upload_assets, 'k3sProvenance': provenance, 'fullOriginalAcceptanceComplete': False,
                 'windowsAuthenticodeSigned': False, 'publicServerUpgraded': False,
                 'thirdPartyRedistributionReviewComplete': acceptance.get('thirdPartyRedistributionReviewComplete', False)}
     (OUT / 'release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     (OUT / 'SHA256SUMS').write_text(''.join(digest(p) + '  ' + p.name + '\n' for p in sorted(OUT.iterdir()) if p.is_file() and p.name != 'SHA256SUMS'), encoding='utf-8')
-    print('Draft release assembled from', head, 'at', OUT)
+    print('Release build/evidence assembled from', head, 'at', OUT)
+    print('Upload only the three binaries in', OUT / 'upload')
 
 
 if __name__ == '__main__':

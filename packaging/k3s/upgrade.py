@@ -111,6 +111,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="eqlink-test")
     parser.add_argument("--node", required=True)
+    parser.add_argument("--arch", choices=("amd64", "arm64"), default="arm64")
+    parser.add_argument("--image", help="Exact imported image reference; defaults to the bundled version for --arch")
     parser.add_argument("--tun-resource", default="armhpc.home.arpa/tun")
     parser.add_argument("--expected-image-id", help="sha256 ID reported by k3s crictl inspecti after verified offline import")
     parser.add_argument("--apply", action="store_true")
@@ -119,6 +121,9 @@ def main():
     parser.add_argument("--kubectl")
     parser.add_argument("--kubeconfig")
     args = parser.parse_args()
+    args.image = args.image or IMAGE.rsplit("-", 1)[0] + "-" + args.arch
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/:@-]*", args.image):
+        raise ValueError("Invalid container image reference")
     if os.name != "posix":
         raise ValueError("Run upgrade from a Linux management environment so private backups have POSIX permissions")
     for value in (args.namespace, args.node):
@@ -130,8 +135,8 @@ def main():
     current = kube.get("deployment", "eqlink-server", args.namespace)
     owned(current)
     node = kube.get("node", args.node)
-    if node["status"]["nodeInfo"]["architecture"] != "arm64" or not any(c["type"] == "Ready" and c["status"] == "True" for c in node["status"].get("conditions", [])):
-        raise ValueError("Selected node must be Ready ARM64")
+    if node["status"]["nodeInfo"]["architecture"] != args.arch or not any(c["type"] == "Ready" and c["status"] == "True" for c in node["status"].get("conditions", [])):
+        raise ValueError("Selected node must be Ready " + args.arch)
     pinned = current["spec"]["template"]["spec"].get("affinity", {}).get("nodeAffinity", {}).get("requiredDuringSchedulingIgnoredDuringExecution", {}).get("nodeSelectorTerms", [])
     if len(pinned) != 1 or not any(f.get("key") == "metadata.name" and f.get("operator") == "In" and f.get("values") == [args.node] for f in pinned[0].get("matchFields", [])):
         raise ValueError("Deployment is not pinned to the requested node")
@@ -152,7 +157,7 @@ def main():
             raise ValueError("Backup targets a different scheduling policy; manual review required")
         template = saved["spec"]["template"]
     else:
-        template = upgraded_template(current, IMAGE, args.tun_resource)
+        template = upgraded_template(current, args.image, args.tun_resource)
     patch_template(kube, args.namespace, template, current["metadata"]["resourceVersion"], dry_run=True)
     folder = args.output / ("upgrade-" + time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3))
     folder.mkdir(parents=True, mode=0o700)

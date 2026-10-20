@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect a Windows-only release and compatible management tools; no deployment or installer execution."""
+"""Legacy 0.3.x test-bundle assembler; public releases use package-release.py and upload/."""
 import argparse
 from datetime import datetime, timezone
 import hashlib

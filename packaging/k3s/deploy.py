@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare and apply EqLink to one explicitly selected ARM64 k3s node."""
+"""Prepare and apply EqLink to one explicitly selected amd64/arm64 Kubernetes node."""
 import argparse
 import base64
 import ipaddress
@@ -17,6 +17,11 @@ BASE = pathlib.Path(__file__).resolve().parent
 
 
 def validate(args):
+    if getattr(args, "arch", "arm64") not in ("amd64", "arm64"):
+        raise ValueError("Architecture must be amd64 or arm64")
+    image = getattr(args, "image", None)
+    if image is not None and (not image or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/:@-]*", image)):
+        raise ValueError("Invalid container image reference")
     for value in (args.namespace, args.node):
         if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", value) or len(value) > 253:
             raise ValueError("Invalid node or namespace name")
@@ -63,7 +68,9 @@ def resources(args, configuration, certificate, private_key):
     deployment["metadata"] = meta("eqlink-server")
     pod = deployment["spec"]["template"]["spec"]
     pod["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"][0]["matchFields"][0]["values"] = [args.node]
-    pod["containers"][0]["image"] = IMAGE
+    arch = getattr(args, "arch", "arm64")
+    pod["nodeSelector"]["kubernetes.io/arch"] = arch
+    pod["containers"][0]["image"] = getattr(args, "image", None) or IMAGE.rsplit("-", 1)[0] + "-" + arch
     resource = getattr(args, "tun_resource", "armhpc.home.arpa/tun")
     for section in ("requests", "limits"):
         pod["containers"][0]["resources"][section].pop("armhpc.home.arpa/tun", None)
@@ -86,6 +93,8 @@ def resources(args, configuration, certificate, private_key):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--node", required=True)
+    parser.add_argument("--arch", choices=("amd64", "arm64"), default="arm64")
+    parser.add_argument("--image", help="Exact image reference already imported into the selected node")
     parser.add_argument("--public-host", required=True)
     parser.add_argument("--tls-cert", required=True, type=pathlib.Path)
     parser.add_argument("--tls-key", required=True, type=pathlib.Path)
@@ -104,6 +113,8 @@ def main():
     parser.add_argument("--render-only", action="store_true", help="Only write private local manifests; do not access Kubernetes")
     parser.add_argument("--output", type=pathlib.Path, default=BASE / "private")
     args = parser.parse_args()
+    if args.image is None:
+        args.image = IMAGE.rsplit("-", 1)[0] + "-" + args.arch
     validate(args)
     if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?/[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?", args.tun_resource):
         raise ValueError("Invalid TUN extended resource name")
@@ -116,8 +127,8 @@ def main():
         node = kube.get("node", args.node)
         if kube.get("deployment", "eqlink-server", args.namespace, optional=True):
             raise ValueError("Existing EqLink deployment: use upgrade.py; install never replaces an existing deployment")
-        if node["status"]["nodeInfo"]["architecture"] != "arm64" or not any(c["type"] == "Ready" and c["status"] == "True" for c in node["status"].get("conditions", [])):
-            raise ValueError("Selected node must be Ready and arm64")
+        if node["status"]["nodeInfo"]["architecture"] != args.arch or not any(c["type"] == "Ready" and c["status"] == "True" for c in node["status"].get("conditions", [])):
+            raise ValueError("Selected node must be Ready and " + args.arch)
         from upgrade import check_tun
         check_tun(kube, node, args.tun_resource, args.namespace)
         overlay = ipaddress.ip_network(args.overlay)
@@ -178,7 +189,7 @@ def main():
         kube.apply(item)
     print("Applied. Inspect: kubectl -n " + args.namespace + " get pods -o wide")
     print("NAT must point TCP/" + str(args.tcp_port) + " and UDP/" + str(args.udp_port) + " to the selected node's LAN IP.")
-    print("Image must already be imported on that node: " + IMAGE)
+    print("Image must already be imported on that node: " + args.image)
 
 
 if __name__ == "__main__":
