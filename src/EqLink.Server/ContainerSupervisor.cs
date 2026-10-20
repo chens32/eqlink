@@ -23,7 +23,6 @@ internal sealed class ContainerSupervisor(ServerFiles files)
 
     internal async Task RunAsync(string settingsFile)
     {
-        if (!ServerRuntime.IsContainer) throw new InvalidOperationException("serve requires EQLINK_RUNTIME=container.");
         files.EnsureDirectories();
         Directory.CreateDirectory(ServerRuntime.RunDirectory);
         File.SetUnixFileMode(ServerRuntime.RunDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -43,6 +42,7 @@ internal sealed class ContainerSupervisor(ServerFiles files)
             else
             {
                 var state = files.ReadState();
+                EnrollmentService.RequireV2(state);
                 if (ConfigRenderer.Serialize(state.Settings) != ConfigRenderer.Serialize(requested))
                     throw new InvalidOperationException("Bootstrap settings differ from persistent state. Restore the original bootstrap Secret or perform a deliberate state migration.");
                 files.Render(state);
@@ -54,15 +54,16 @@ internal sealed class ContainerSupervisor(ServerFiles files)
         _children.Add(new Child("openvpn", "openvpn", ["--config", files.OpenVpnFile]));
         if (_settings.EnableUdp) _children.Add(new Child("hysteria", "hysteria", ["server", "-c", files.HysteriaFile]));
         if (_settings.EnableTcp) _children.Add(new Child("xray", "xray", ["run", "-c", files.XrayFile]));
-        var health = Health.RunAsync(_settings.HealthPort, _stop.Token);
+        await using var health = new ControlHost(files);
+        await health.StartAsync(_stop.Token);
         var control = ControlLoopAsync(_stop.Token);
         var nextCrl = DateTimeOffset.UtcNow.AddDays(7);
+        long authStamp = -1; int? authPid = null;
         Log("supervisor", "Starting one OpenVPN server with independently supervised outer paths.");
         try
         {
             while (!_stop.IsCancellationRequested)
             {
-                if (health.IsCompleted) await health;
                 if (control.IsCompleted) await control;
                 while (_requests.Reader.TryRead(out var request))
                 {
@@ -85,6 +86,21 @@ internal sealed class ContainerSupervisor(ServerFiles files)
                     }
                 }
                 foreach (var child in _children) await child.EnsureRunningAsync();
+                var xray = _children.FirstOrDefault(c=>c.Name=="xray");
+                var stamp = File.GetLastWriteTimeUtc(files.StateFile).Ticks;
+                if (xray is not null && Listening(xray) && (stamp != authStamp || xray.Pid != authPid))
+                {
+                    try
+                    {
+                        // Nonblocking lock: enrollment may be applying an API change while holding this same lock.
+                        using var reconcileLock = new FileStream(Path.Combine(files.Root,".state.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
+                        files.RecoverPending();
+                        new EnrollmentService(files).ReconcileUsers(files.ReadState());
+                        authStamp = File.GetLastWriteTimeUtc(files.StateFile).Ticks; authPid = xray.Pid;
+                    }
+                    catch (IOException) { } // Retry after a writer finishes or the API recovers. Existing users stay online.
+                }
+                await health.EnsureInnerAsync(_stop.Token);
                 WriteStatus();
                 if (DateTimeOffset.UtcNow >= nextCrl)
                 {
@@ -106,7 +122,7 @@ internal sealed class ContainerSupervisor(ServerFiles files)
         {
             _stop.Cancel();
             foreach (var child in _children) await child.StopAsync();
-            try { await Task.WhenAll(health, control); } catch (OperationCanceledException) { }
+            try { await control; } catch (OperationCanceledException) { }
             File.Delete(StatusFile);
             File.Delete(ServerRuntime.ControlSocket);
             Log("supervisor", "Stopped.");
@@ -141,11 +157,13 @@ internal sealed class ContainerSupervisor(ServerFiles files)
             .Any(a => a.Address.Equals(IPAddress.Parse(overlay.ServerIp)));
         var healthListening = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners()
             .Any(p => p.Address.Equals(IPAddress.Loopback) && p.Port == _settings.HealthPort);
+        var innerListening = IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners()
+            .Any(p => p.Address.Equals(IPAddress.Parse(overlay.ServerIp)) && p.Port == _settings.HealthPort);
         var pathAvailable = _children.Where(c => c.Name != "openvpn").Any(Listening);
         ServerFiles.AtomicWrite(StatusFile, ConfigRenderer.Serialize(new
         {
             timestamp = DateTimeOffset.UtcNow, pid = Environment.ProcessId,
-            ready = Listening(vpn) && healthListening && hasTunAddress && pathAvailable,
+            ready = Listening(vpn) && healthListening && innerListening && hasTunAddress && pathAvailable,
             virtualIp = overlay.ServerIp,
             services = _children.Select(c => new { name = c.Name, pid = c.Pid, running = c.Running, listening = Listening(c), exitCode = c.LastExitCode })
         }));
@@ -250,7 +268,13 @@ internal sealed class ContainerSupervisor(ServerFiles files)
         private async Task PumpAsync(StreamReader reader)
         {
             string? line;
-            while ((line = await reader.ReadLineAsync()) is not null) Log(name, line);
+            while ((line = await reader.ReadLineAsync()) is not null)
+            {
+                // Only event categories cross into supervisor logs. Components may include credentials in raw errors.
+                if (line.Contains("AUTH_FAILED", StringComparison.OrdinalIgnoreCase) || line.Contains("authentication failed", StringComparison.OrdinalIgnoreCase)) Log(name, "Authentication rejected.");
+                else if (line.Contains("VERIFY ERROR", StringComparison.OrdinalIgnoreCase)) Log(name, "Certificate verification rejected.");
+                else if (line.Contains("error", StringComparison.OrdinalIgnoreCase) || line.Contains("fatal", StringComparison.OrdinalIgnoreCase)) Log(name, "Component reported an error; raw output withheld.");
+            }
         }
 
         internal async Task StopAsync()

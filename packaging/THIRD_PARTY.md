@@ -9,4 +9,8 @@ The Windows build downloads exact artifacts named in `third_party.lock.json`, ve
 
 The ARM64 k3s test image also contains Debian Bookworm packages including OpenVPN, OpenSSL, Python and iperf3. Exact package versions are recorded in `debian-packages-arm64.txt`; their copyright and license notices remain under `/usr/share/doc` inside the image. Debian archive signatures and package checksums are verified during construction. The offline archive's own hashes and executable/source provenance are included with the test package.
 
-Windows release builds should be Authenticode-signed before distribution. The unsigned build is for controlled testing.
+The self-contained runtime notices are extracted from the checksum-pinned .NET runtime packages during staging. The WiX 5.0.2 MS-RL license is retained in `licenses/WiX-5.0.2-LICENSE.txt`; its upstream source is `wixtoolset/wix` at tag `v5.0.2`.
+
+EqLink's own license is GPL-3.0-only. OpenVPN remains GPLv2 with its exceptions; Xray remains MPL-2.0; Hysteria remains MIT. See [license review](../docs/licensing.md). A copy of EqLink's source does not satisfy all third-party corresponding-source requirements. The v1.0.0 draft must retain unresolved source-availability and signing gates until reviewed.
+
+Windows release builds should be Authenticode-signed before public distribution. The current draft is unsigned and remains for controlled testing.

@@ -25,6 +25,9 @@ public sealed class PhysicalEgress : IAsyncDisposable
     private Resolution _resolution = new(IPAddress.None, DateTimeOffset.MinValue);
     private IPAddress _sessionTarget = IPAddress.None;
     private Task[] _tasks = [];
+    private readonly ConcurrentDictionary<Task, byte> _udpReceivers = new();
+    private long _udpReceiveErrors, _udpForwardErrors, _udpPeersCreated, _udpFromLocal, _udpToLocal;
+    private int _lastUdpSocketError;
 
     private sealed record UdpPeer(IPEndPoint Local, IPAddress Target, Socket Socket);
 
@@ -39,6 +42,21 @@ public sealed class PhysicalEgress : IAsyncDisposable
     public string TargetAddress => _sessionTarget.ToString();
     public string LatestTargetAddress => Volatile.Read(ref _resolution).Address.ToString();
     public bool HasNewTarget => !Volatile.Read(ref _resolution).Address.Equals(_sessionTarget);
+    public bool IsHealthy => _tasks.Length == 3 && _tasks.All(task => !task.IsCompleted);
+    public object Inspect() => new
+    {
+        healthy = IsHealthy,
+        loops = _tasks.Select(task => task.Status.ToString()).ToArray(),
+        udpReceiveErrors = Interlocked.Read(ref _udpReceiveErrors), udpForwardErrors = Interlocked.Read(ref _udpForwardErrors),
+        udpPeersCreated = Interlocked.Read(ref _udpPeersCreated), udpFromLocal = Interlocked.Read(ref _udpFromLocal),
+        udpToLocal = Interlocked.Read(ref _udpToLocal), lastUdpSocketError = Volatile.Read(ref _lastUdpSocketError),
+        udpReceiverTasks = _udpReceivers.Count
+    };
+
+    public void ResetUdpPeer()
+    {
+        lock (_udpGate) { _peer?.Socket.Dispose(); _peer = null; }
+    }
     public DeviceProfile RuntimeProfile => _profile with
     {
         PublicHost = IPAddress.Loopback.ToString(),
@@ -201,28 +219,48 @@ public sealed class PhysicalEgress : IAsyncDisposable
         {
             while (!_stop.IsCancellationRequested)
             {
-                var received = await _udp.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), _stop.Token);
+                SocketReceiveFromResult received;
+                try { received = await _udp.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), _stop.Token); }
+                catch (SocketException ex) when (!_stop.IsCancellationRequested && ex.SocketErrorCode is
+                    SocketError.ConnectionReset or SocketError.ConnectionRefused or SocketError.NetworkReset or SocketError.MessageSize)
+                {
+                    // A late reply to an exited loopback HY2 port can produce WSAECONNRESET.
+                    // This describes one UDP datagram, not the lifetime of the shared listener.
+                    Interlocked.Increment(ref _udpReceiveErrors);
+                    Volatile.Write(ref _lastUdpSocketError, ex.NativeErrorCode);
+                    continue;
+                }
+                Interlocked.Increment(ref _udpFromLocal);
+                UdpPeer? peer = null;
                 try
                 {
                     var client = (IPEndPoint)received.RemoteEndPoint;
                     var target = CurrentTarget();
-                    UdpPeer peer;
                     lock (_udpGate)
                     {
                         if (_peer is null || !_peer.Local.Equals(client) || !_peer.Target.Equals(target))
                         {
                             _peer?.Socket.Dispose();
+                            _peer = null;
                             var upstream = BoundSocket(SocketType.Dgram);
                             try { upstream.Connect(new IPEndPoint(target, _profile.UdpPort)); }
                             catch { upstream.Dispose(); throw; }
                             _peer = new UdpPeer(client, target, upstream);
-                            _ = ReceiveUdpAsync(_peer);
+                            Interlocked.Increment(ref _udpPeersCreated);
+                            var receiver = ReceiveUdpAsync(_peer);
+                            _udpReceivers.TryAdd(receiver, 0);
+                            _ = receiver.ContinueWith(completed => _udpReceivers.TryRemove(completed, out _), TaskScheduler.Default);
                         }
                         peer = _peer;
                     }
                     await peer.Socket.SendAsync(buffer.AsMemory(0, received.ReceivedBytes), SocketFlags.None, _stop.Token);
                 }
-                catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException) { }
+                catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
+                {
+                    Interlocked.Increment(ref _udpForwardErrors);
+                    if (ex is SocketException socketError) Volatile.Write(ref _lastUdpSocketError, socketError.NativeErrorCode);
+                    RetireUdpPeer(peer);
+                }
             }
         }
         catch (Exception ex) when (_stop.IsCancellationRequested && ex is OperationCanceledException or SocketException or ObjectDisposedException) { }
@@ -238,12 +276,28 @@ public sealed class PhysicalEgress : IAsyncDisposable
                 var count = await peer.Socket.ReceiveAsync(buffer, SocketFlags.None, _stop.Token);
                 lock (_udpGate) if (!ReferenceEquals(_peer, peer)) return;
                 await _udp.SendToAsync(buffer.AsMemory(0, count), SocketFlags.None, peer.Local, _stop.Token);
+                Interlocked.Increment(ref _udpToLocal);
             }
         }
-        catch (Exception ex) when (ex is SocketException or OperationCanceledException or ObjectDisposedException) { }
+        catch (SocketException ex)
+        {
+            if (!_stop.IsCancellationRequested)
+            { Interlocked.Increment(ref _udpForwardErrors); Volatile.Write(ref _lastUdpSocketError, ex.NativeErrorCode); }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException) { }
         finally
         {
-            lock (_udpGate) if (ReferenceEquals(_peer, peer)) { _peer = null; peer.Socket.Dispose(); }
+            RetireUdpPeer(peer);
+        }
+    }
+
+    private void RetireUdpPeer(UdpPeer? peer)
+    {
+        if (peer is null) return;
+        lock (_udpGate)
+        {
+            if (ReferenceEquals(_peer, peer)) _peer = null;
+            peer.Socket.Dispose();
         }
     }
 
@@ -310,7 +364,7 @@ public sealed class PhysicalEgress : IAsyncDisposable
         _udp.Dispose();
         lock (_udpGate) { _peer?.Socket.Dispose(); _peer = null; }
         foreach (var socket in _streams.Keys) socket.Dispose();
-        try { await Task.WhenAll(_tasks).WaitAsync(TimeSpan.FromSeconds(5)); }
+        try { await Task.WhenAll(_tasks.Concat(_udpReceivers.Keys)).WaitAsync(TimeSpan.FromSeconds(5)); }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException or TimeoutException) { }
         _stop.Dispose();
     }

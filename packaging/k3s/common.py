@@ -6,7 +6,7 @@ import pathlib
 import shutil
 import subprocess
 
-IMAGE = "docker.io/eqlink/server:0.2.0-k3s-test-arm64"
+IMAGE = "docker.io/eqlink/server:1.0.0-arm64"
 OWNER = "eqlink-test-packer"
 
 

@@ -7,6 +7,10 @@
     <ProjectReference Include="../EqLink.ClientGui/EqLink.ClientGui.csproj" />
     <Compile Include="../EqLink.ClientService/EqLinkDaemon.cs" Link="EqLinkDaemon.cs" />
     <Compile Include="../EqLink.ClientService/EqLinkDaemon.Network.cs" Link="EqLinkDaemon.Network.cs" />
+    <Compile Include="../EqLink.ClientService/EqLinkDaemon.Enrollment.cs" Link="EqLinkDaemon.Enrollment.cs" />
+    <Compile Include="../EqLink.ClientService/EqLinkDaemon.Metrics.cs" Link="EqLinkDaemon.Metrics.cs" />
+    <Compile Include="../EqLink.ClientService/EqLinkDaemon.Mode.cs" Link="EqLinkDaemon.Mode.cs" />
     <Compile Include="../EqLink.ClientService/OwnedProcessJob.cs" Link="OwnedProcessJob.cs" />
+    <Compile Include="../EqLink.ClientService/HostsOverrideManager.cs" Link="HostsOverrideManager.cs" />
   </ItemGroup>
 </Project>

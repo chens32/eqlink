@@ -15,7 +15,7 @@
         "affinity": { "nodeAffinity": { "requiredDuringSchedulingIgnoredDuringExecution": { "nodeSelectorTerms": [ { "matchFields": [ { "key": "metadata.name", "operator": "In", "values": [ "REPLACE_NODE" ] } ] } ] } } },
         "containers": [ {
           "name": "server",
-          "image": "docker.io/eqlink/server:0.2.0-k3s-test-arm64",
+          "image": "docker.io/eqlink/server:1.0.0-arm64",
           "imagePullPolicy": "Never",
           "args": [ "serve", "--settings", "/run/eqlink-bootstrap/server-settings.json" ],
           "securityContext": { "runAsUser": 0, "runAsGroup": 0, "privileged": false, "readOnlyRootFilesystem": true, "allowPrivilegeEscalation": false, "capabilities": { "drop": ["ALL"], "add": ["NET_ADMIN"] }, "seccompProfile": { "type": "RuntimeDefault" } },

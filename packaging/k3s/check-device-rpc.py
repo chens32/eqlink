@@ -26,7 +26,7 @@ with log_path.open("wb") as log:
         else:
             raise RuntimeError("RPC smoke supervisor did not become ready")
         operation = uuid.uuid4().hex
-        request = json.dumps({"operationId": operation, "name": "rpc-device", "passphrase": "rpc-smoke-test-only-password"}).encode()
+        request = json.dumps({"operationId": operation, "name": "rpc-device"}).encode()
         responses = []
         for _ in range(2):
             result = subprocess.run(command + ["python3", "/usr/local/lib/eqlink/device-request.py"], input=request, capture_output=True, timeout=120)
@@ -36,12 +36,12 @@ with log_path.open("wb") as log:
             if not response.get("ok"):
                 raise RuntimeError(response.get("error", "RPC error"))
             responses.append(response)
-        assert responses[0]["deviceId"] == responses[1]["deviceId"] == operation
+        assert responses[0]["operationId"] == responses[1]["operationId"] == operation
         assert responses[0]["bundle"] == responses[1]["bundle"]
         encrypted = json.loads(base64.b64decode(responses[0]["bundle"]))
-        assert encrypted["algorithm"] == "PBKDF2-SHA256/AES-256-GCM"
+        assert encrypted["schemaVersion"] == 2 and "privateKeyPem" not in encrypted
         state = json.loads((rootfs / "etc/eqlink/state.json").read_text())
-        assert sum(device["id"] == operation for device in state["devices"]) == 1
+        assert sum(grant["id"] == encrypted["grantId"] for grant in state["grants"]) == 1
         cached = rootfs / ("etc/eqlink/exports/" + operation + ".eqlink")
         assert cached.stat().st_mode & 0o077 == 0
         print("ARM64 device RPC and operation-ID recovery: passed", flush=True)

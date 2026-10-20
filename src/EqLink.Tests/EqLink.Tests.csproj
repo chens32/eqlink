@@ -7,4 +7,5 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../EqLink.Core/EqLink.Core.csproj" /></ItemGroup>
+  <ItemGroup><Compile Include="../EqLink.PeerProbe/TrafficProbe.cs" Link="TrafficProbe.cs" /></ItemGroup>
 </Project>

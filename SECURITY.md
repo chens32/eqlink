@@ -1,22 +1,26 @@
-# 安全报告与凭据处理
+# Security policy
 
-## 支持状态
+## Supported versions
 
-0.2.0 为测试版，完整 Windows 生命周期、多设备和目标 k3s 验收尚未完成。当前没有经过完整安全审计的稳定发行版；具体限制见 [验收状态](docs/validation-status.md)。
+v1.0.0 is the first proposed release and is currently prepared as a **draft**. Only the latest maintained release will receive fixes. Earlier 0.x builds are development/test snapshots. No version has completed an independent security audit or the full runtime/installer acceptance matrix; see [validation status](docs/validation-status.md).
 
-## 报告方式
+## Private vulnerability reports
 
-涉及凭据、可利用漏洞或流量泄露时，先通过 GitHub 的私密漏洞报告功能联系维护者（若仓库已启用），或使用双方已有的私密联系渠道确认接收方式。普通 Issue 只放脱敏的现象、版本、错误码和复现步骤。
+Use [GitHub private vulnerability reporting](https://github.com/chens32/eqlink/security/advisories/new) for exploitable vulnerabilities, credential exposure or traffic-boundary failures. If the form is unavailable, arrange a private contact channel with the maintainer before sharing details. Public issues should contain sanitized symptoms, versions and reproduction steps only. Response times are best effort; no support SLA is promised.
 
-不要将真实 CA 私钥、设备私钥、HY2 密码、VLESS UUID、Cookie、令牌、设备包密码或原始运行配置写入 Issue、PR、Git 提交和 CI 日志。抓包和诊断也可能包含网络标识及业务数据。
+Never post enrollment bundles, bearer tokens, UUID credentials, passwords, private keys, CA private material, Cookies, raw decrypted runtime configuration or unsanitized packet captures. Diagnostics may still identify networks, routes and hosts; review them before sharing.
 
-## 仓库边界
+## Repository controls
 
-- `.gitignore` 排除设备包、证书/密钥、运行状态、部署凭据、抓包、安装包及本机验收目录。
-- `tools/check-repository.py` 检查发布路径和部分私钥材料；CI 另用 Gitleaks 扫描 Git 历史。规则扫描不能保证发现所有秘密。
-- 测试凭据应在运行时生成。不要使用生产身份作为测试常量。
-- 真实服务器状态及备份仅在受限位置管理；不要通过修改忽略规则把它们直接纳入版本管理。
+- Runtime state, bundles, certificates/keys, deployment credentials, archives, captures and local evidence are excluded from source control.
+- CI uses source-boundary checks and redacted Gitleaks history scanning. CodeQL and dependency updates complement review; they do not prove absence of vulnerabilities.
+- Pull requests and checks are required before merging to main. Actions use pinned commits and least-privilege tokens; untrusted PR code must never run on privileged/self-hosted production hosts or receive deployment credentials.
+- Real server changes require target-specific authorization, private backups and an independent recovery path. Release artifacts identify source commits and SHA-256; draft installers are unsigned unless stated otherwise.
 
-若秘密已进入 Git，首先吊销或轮换受影响凭据，联系维护者处理历史和相关副本；仅在后续提交中删除文件不能撤回已经泄露的内容。
+If a secret enters Git, revoke/rotate it first and coordinate history/copy cleanup. Deleting it in a later commit does not retract the original exposure. Do not upload private incident evidence merely to demonstrate remediation.
 
-WFP 保护覆盖已导入的虚拟 IPv4 网段。应用显式使用其他代理的请求不在地址过滤范围；外层可连通和抓包窗口无直连泄露，也不能保证外层无法被识别或封锁。
+## Security model boundaries
+
+A valid universal enrollment bundle allows its holder to create new device identities. Revoking a device does not revoke the bundle; revoke the enrollment grant separately when appropriate. All enrolled peers currently share the virtual network.
+
+WFP protection applies to the configured IPv4 virtual subnet. Explicit application proxies, administrators changing local policy, and traffic outside that subnet are outside this boundary. Transport reachability and captures without observed leaks do not establish resistance to traffic identification or blocking.

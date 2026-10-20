@@ -52,7 +52,7 @@ public sealed class WindowsNetworkProtection : IDisposable
 
     private void EnsureBlockedCore(string prefix,string localIp)
     {
-            if (Installed && prefix == _prefix && localIp == _localIp && Enumerate(_engine).Count(r=>(r.Flags & 3)!=0)==8) return;
+            if (Installed && prefix == _prefix && localIp == _localIp && Enumerate(_engine).Count(r=>(r.Flags & 3)!=0)==(localIp.Length==0?4:8)) return;
             Deny();
             Transaction(_engine, () =>
             {
@@ -66,7 +66,7 @@ public sealed class WindowsNetworkProtection : IDisposable
                 foreach (var flags in new uint[] { 1, 2 })
                 {
                     Add(_engine, layer, flags, false, prefix, localIp, null, false);
-                    Add(_engine, layer, flags, true, prefix, localIp, null, true);
+                    if (localIp.Length > 0) Add(_engine, layer, flags, true, prefix, localIp, null, true);
                 }
             });
             _prefix = prefix; _localIp = localIp; Installed = true;
@@ -78,6 +78,7 @@ public sealed class WindowsNetworkProtection : IDisposable
         lock (_gate)
         {
             if (!Installed) throw new InvalidOperationException("Persistent network protection is not installed.");
+            if (string.IsNullOrEmpty(_localIp)) throw new InvalidOperationException("A server-confirmed address is required before allowing traffic.");
             if (_allowEngine != IntPtr.Zero && _allowedLuid == interfaceLuid) return;
             Deny();
             Open(ref _allowEngine, true);
@@ -136,6 +137,7 @@ public sealed class WindowsNetworkProtection : IDisposable
     {
         var settings = new ServerSettings { PublicHost = "validation.invalid", OverlayCidr = prefix };
         var network = settings.Overlay().Network;
+        if (localIp.Length == 0) return;
         if (!IPAddress.TryParse(localIp, out var ip) || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
             !ip.GetAddressBytes().AsSpan(0, 3).SequenceEqual(IPAddress.Parse(network).GetAddressBytes().AsSpan(0, 3)) || ip.GetAddressBytes()[3] is 0 or 255)
             throw new ArgumentException("Protection address must belong to its private /24.");

@@ -195,6 +195,15 @@ public sealed class ProxySelector : IAsyncDisposable
 
     private async Task<bool> ProbeAsync(ActivePath path, CancellationToken stop)
     {
+        if (_profile.AuthenticatedHealth)
+        {
+            try
+            {
+                using var api = new ControlApiClient(_profile, path == ActivePath.Udp ? _udpProxyPort : _tcpProxyPort);
+                await api.HealthAsync(stop); return true;
+            }
+            catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException) { return false; }
+        }
         using var remote = await ConnectThroughAsync(path, _profile.HealthPort, stop);
         if (remote is null) return false;
         try

@@ -108,14 +108,20 @@ public static class ConfigRenderer
         });
     }
 
-    public static string ClientHysteria(DeviceProfile p, int localProxyPort)
+    public static string ClientHysteria(DeviceProfile p, int localProxyPort, string? caFile = null)
     {
-        p.Validate();
+        var tls = new Dictionary<string, object> { ["sni"] = p.HysteriaServerName, ["insecure"] = false, ["pinSHA256"] = p.HysteriaCertificateSha256 };
+        if (!string.IsNullOrEmpty(p.HysteriaCaPem))
+        {
+            HysteriaTrust.Validate(p.HysteriaCaPem);
+            if (string.IsNullOrWhiteSpace(caFile)) throw new ArgumentException("HYSTERIA_CA_FILE_REQUIRED");
+            tls["ca"] = caFile;
+        }
         return Serialize(new
         {
             server = $"{p.PublicHost}:{p.UdpPort}",
             auth = p.HysteriaAuth,
-            tls = new { sni = p.HysteriaServerName, insecure = false, pinSHA256 = p.HysteriaCertificateSha256 },
+            tls,
             http = new { listen = $"127.0.0.1:{localProxyPort}" }
         });
     }
@@ -153,7 +159,6 @@ public static class ConfigRenderer
 
     public static string ClientXray(DeviceProfile p, int localProxyPort)
     {
-        p.Validate();
         return Serialize(new
         {
             log = new { loglevel = "warning" },
@@ -174,5 +179,43 @@ public static class ConfigRenderer
     {
         using var cert = X509Certificate2.CreateFromPem(certificatePem);
         return string.Join(':', SHA256.HashData(cert.RawData).Select(b => b.ToString("X2")));
+    }
+
+    public static string ServerHysteria(ServerState state)
+    {
+        var s = state.Settings; s.Validate();
+        return Serialize(new
+        {
+            listen = $"0.0.0.0:{s.UdpPort}",
+            tls = new { cert = s.HysteriaCertificate, key = s.HysteriaPrivateKey, sniGuard = "strict" },
+            auth = new { type = "http", http = new { url = $"http://127.0.0.1:{s.AuthPort}/auth" } },
+            trafficStats = new { listen = $"127.0.0.1:{s.HysteriaStatsPort}", secret = state.HysteriaApiSecret },
+            disableUDP = true, speedTest = false,
+            acl = new { inline = new[] { $"direct(127.0.0.1, tcp/{s.OpenVpnPort})", $"direct(127.0.0.1, tcp/{s.HealthPort})", "reject(all)" } }
+        });
+    }
+
+    public static string ServerXray(ServerState state)
+    {
+        var s = state.Settings; s.Validate();
+        var clients = state.Devices.Where(d => d.Active).Select(d => new { id = d.VlessId.ToString(), email = d.Id })
+            .Concat(state.Grants.Where(g => g.Active).Select(g => new { id = g.VlessId.ToString(), email = g.Id })).ToArray();
+        return Serialize(new
+        {
+            log = new { loglevel = "warning" },
+            api = new { tag = "api", listen = $"127.0.0.1:{s.XrayApiPort}", services = new[] { "HandlerService" } },
+            inbounds = new[] { new {
+                tag = "vless-in", listen = "0.0.0.0", port = s.TcpPort, protocol = "vless",
+                settings = new { clients, decryption = "none" },
+                streamSettings = new { network = "xhttp", security = "reality",
+                    realitySettings = new { target = s.RealityTarget, serverNames = new[] { s.RealityServerName }, privateKey = s.RealityPrivateKey, shortIds = new[] { s.RealityShortId } },
+                    xhttpSettings = new { path = s.XhttpPath, mode = "auto" } }
+            } },
+            routing = new { domainStrategy = "AsIs", rules = new object[] {
+                new { type = "field", inboundTag = new[] { "vless-in" }, network = "tcp", ip = new[] { "127.0.0.1/32" }, port = $"{s.OpenVpnPort},{s.HealthPort}", outboundTag = "backend-only" },
+                new { type = "field", inboundTag = new[] { "vless-in" }, network = "tcp,udp", outboundTag = "blocked" }
+            } },
+            outbounds = new object[] { new { tag = "backend-only", protocol = "freedom" }, new { tag = "blocked", protocol = "blackhole" } }
+        });
     }
 }

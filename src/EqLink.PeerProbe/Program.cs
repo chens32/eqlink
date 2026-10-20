@@ -9,15 +9,16 @@ using System.Text.Json;
 var options = new Dictionary<string,string>();
 try
 {
-    if (args.Length<3 || args.Length%2!=1 || args[0] is not ("serve" or "check")) throw new ArgumentException("Usage: serve|check --bind VIRTUAL_IP [--peer OTHER_VIRTUAL_IP] [--port 36555] [--seconds 120] [--repeat 5] [--output report.json]");
+    if (args.Length<3 || args.Length%2!=1 || args[0] is not ("serve" or "check" or "stream-serve" or "transfer" or "hold")) throw new ArgumentException("Usage: serve|check|stream-serve|transfer|hold --bind VIRTUAL_IP [--peer OTHER_VIRTUAL_IP] [--port 36555] [--seconds 120] [--repeat 5] [--direction upload|download] [--bytes N] [--connections 3] [--output report.json]");
     for(var i=1;i<args.Length;i+=2) if(!options.TryAdd(args[i],args[i+1]))throw new ArgumentException("Duplicate option");
-    if(options.Keys.Except(new[]{"--bind","--peer","--port","--seconds","--repeat","--output"}).Any())throw new ArgumentException("Unknown option");
+    if(options.Keys.Except(new[]{"--bind","--peer","--port","--seconds","--repeat","--output","--direction","--bytes","--connections"}).Any())throw new ArgumentException("Unknown option");
     var bind=IPAddress.Parse(options["--bind"]);
     var b=bind.GetAddressBytes();
     if(bind.AddressFamily!=AddressFamily.InterNetwork || !(b[0]==10 || b[0]==172 && b[1]>=16 && b[1]<=31 || b[0]==192 && b[1]==168) || b[3] is 0 or 255 ||
        !NetworkInterface.GetAllNetworkInterfaces().Any(n=>n.GetIPProperties().UnicastAddresses.Any(a=>a.Address.Equals(bind))))throw new ArgumentException("--bind must be an assigned private virtual IPv4 address");
     var port=int.Parse(options.GetValueOrDefault("--port","36555"));
     if(port is <1024 or >65535)throw new ArgumentException("Use a high port (1024..65535)");
+    if(args[0] is "stream-serve" or "transfer" or "hold") {await TrafficProbe.RunAsync(args[0],options,bind,port);return;}
     if(args[0]=="serve")
     {
         var seconds=int.Parse(options.GetValueOrDefault("--seconds","120"));
@@ -60,7 +61,7 @@ try
         catch(Exception ex) when(ex is SocketException or IOException or OperationCanceledException or PingException) {error=ex.GetType().Name;}
         results.Add(new {iteration=i,protocol,result=ok?"passed":"failed",elapsedMs=Math.Round(watch.Elapsed.TotalMilliseconds,1),error});success&=ok;
     }
-    var json=JsonSerializer.Serialize(new {schemaVersion=1,version="0.2.0",timestamp=DateTimeOffset.UtcNow,bind=bind.ToString(),peer=peer.ToString(),port,result=success?"passed":"failed",checks=results},new JsonSerializerOptions{WriteIndented=true});
+    var json=JsonSerializer.Serialize(new {schemaVersion=1,version=typeof(TrafficProbe).Assembly.GetName().Version?.ToString(3),timestamp=DateTimeOffset.UtcNow,bind=bind.ToString(),peer=peer.ToString(),port,result=success?"passed":"failed",checks=results},new JsonSerializerOptions{WriteIndented=true});
     Console.WriteLine(json);if(options.TryGetValue("--output",out var output))File.WriteAllText(output,json);
     Environment.ExitCode=success?0:1;
 }

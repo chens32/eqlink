@@ -1,54 +1,116 @@
 <Window x:Class="EqLink.ClientGui.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="EqLink" Width="510" Height="600"
-        MinWidth="510" MinHeight="520" Background="#F6F8FB" WindowStartupLocation="CenterScreen">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-        <TextBlock Text="EqLink" FontSize="28" FontWeight="SemiBold" Foreground="#15233B" />
-        <Border Grid.Row="1" Margin="0,16,0,0" Padding="16" CornerRadius="8" Background="White">
-            <StackPanel>
-                <TextBlock x:Name="ConnectionText" Text="正在读取状态…" FontSize="18" FontWeight="SemiBold"/>
-                <TextBlock x:Name="DeviceText" Margin="0,8,0,0" Text="设备：未导入"/>
-                <TextBlock x:Name="AddressText" Margin="0,4,0,0" Text="虚拟 IP：—"/>
-                <TextBlock x:Name="PathText" Margin="0,4,0,0" Text="当前路径：—"/>
-                <TextBlock x:Name="EgressText" Margin="0,4,0,0" Text="出口网卡：系统路由"/>
-                <TextBlock x:Name="ProtectionText" Margin="0,4,0,0" Text="虚拟网段保护：正在读取" TextWrapping="Wrap"/>
-                <TextBlock x:Name="MessageText" Margin="0,10,0,0" TextWrapping="Wrap" Foreground="#586579"/>
-            </StackPanel>
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="EqLink · 私有网络" Width="960" Height="680"
+        MinWidth="820" MinHeight="600" FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="13"
+        Background="#F3F6FA" Foreground="#1D2D45" WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="16,9"/><Setter Property="MinHeight" Value="36"/><Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="White"/><Setter Property="BorderBrush" Value="#CDD6E3"/>
+            <Setter Property="Foreground" Value="#243750"/><Setter Property="FocusVisualStyle"><Setter.Value><Style><Setter Property="Control.Template"><Setter.Value><ControlTemplate><Rectangle Margin="3" Stroke="#2375CF" StrokeDashArray="2 2"/></ControlTemplate></Setter.Value></Setter></Style></Setter.Value></Setter>
+        </Style>
+        <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="34"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="Padding" Value="8,4"/></Style>
+        <Style TargetType="TextBox"><Setter Property="Padding" Value="9,7"/><Setter Property="BorderBrush" Value="#CDD6E3"/></Style>
+        <Style x:Key="Card" TargetType="Border"><Setter Property="Background" Value="White"/><Setter Property="CornerRadius" Value="12"/><Setter Property="Padding" Value="22"/><Setter Property="BorderBrush" Value="#E1E7F0"/><Setter Property="BorderThickness" Value="1"/></Style>
+        <Style x:Key="Label" TargetType="TextBlock"><Setter Property="Foreground" Value="#63748C"/><Setter Property="Margin" Value="0,0,0,7"/></Style>
+        <Style x:Key="Value" TargetType="TextBlock"><Setter Property="FontSize" Value="15"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="TextWrapping" Value="Wrap"/></Style>
+        <Style TargetType="TabItem"><Setter Property="Padding" Value="22,11"/><Setter Property="FontSize" Value="14"/></Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="86"/><RowDefinition Height="*"/><RowDefinition Height="82"/></Grid.RowDefinitions>
+        <Border Background="White" BorderBrush="#E1E7F0" BorderThickness="0,0,0,1" Padding="28,0">
+            <DockPanel LastChildFill="False">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="39" Height="39" CornerRadius="11" Background="#1765B7" Margin="0,0,13,0"><TextBlock Text="E" Foreground="White" FontSize="25" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                    <StackPanel><TextBlock Text="EqLink" FontSize="23" FontWeight="SemiBold"/><TextBlock Text="连接你的私有网络" Foreground="#63748C" FontSize="12"/></StackPanel>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding VersionLabel}" Foreground="#63748C" VerticalAlignment="Center"/>
+            </DockPanel>
         </Border>
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,18,0,0">
-            <TextBlock Text="连接模式" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <ComboBox x:Name="ModeBox" Width="150" SelectedIndex="0">
-                <ComboBoxItem Content="自动" Tag="Auto"/><ComboBoxItem Content="仅 UDP" Tag="UdpOnly"/>
-                <ComboBoxItem Content="仅 TCP" Tag="TcpOnly"/>
-            </ComboBox>
-            <Button Content="应用模式" Margin="10,0,0,0" Padding="12,6" Click="ApplyMode_Click"/>
-        </StackPanel>
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,18,0,0">
-            <Button Content="连接" Width="100" Padding="10,7" Click="Connect_Click"/>
-            <Button Content="断开" Width="100" Margin="10,0,0,0" Padding="10,7" Click="Disconnect_Click"/>
-            <Button Content="导入设备包" Margin="10,0,0,0" Padding="12,7" Click="Browse_Click"/>
-        </StackPanel>
-        <StackPanel Grid.Row="4" Margin="0,18,0,0">
-            <TextBlock x:Name="BundleText" Text="尚未选择导入包" Foreground="#586579" TextTrimming="CharacterEllipsis"/>
-            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <TextBlock Text="导入密码" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                <PasswordBox x:Name="PassphraseBox" Width="240"/>
-                <Button Content="确认导入" Margin="10,0,0,0" Padding="10,5" Click="Import_Click"/>
-            </StackPanel>
-        </StackPanel>
-        <StackPanel Grid.Row="5" Margin="0,16,0,0">
-            <Button x:Name="EgressSettingsButton" Content="出口设置…" Padding="12,6" HorizontalAlignment="Left" Click="Egress_Click"/>
-            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <Button x:Name="ProtectionButton" Content="关闭网段保护" Padding="12,6" Click="Protection_Click" ToolTip="断开后以管理员身份修改；仅影响当前 EqLink 虚拟网段"/>
-                <Button Content="导出诊断…" Margin="10,0,0,0" Padding="12,6" Click="Diagnostics_Click"/>
-            </StackPanel>
-            <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Foreground="#66758A"
-                       Text="连接建立后，使用管理员提供的虚拟 IP 访问其他 EqLink 设备。切换路径会中断现有应用连接。"/>
-        </StackPanel>
+        <TabControl x:Name="Sections" Grid.Row="1" Margin="26,18,26,16" Background="Transparent" BorderThickness="0">
+            <TabItem Header="总览">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="0,16,0,0">
+                        <Border Style="{StaticResource Card}">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <StackPanel Grid.ColumnSpan="2" Margin="0,0,0,12">
+                                    <TextBlock x:Name="ConnectionText" Text="{Binding StateText}" Foreground="{Binding StateColor}" FontSize="26" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Message}" Foreground="#63748C" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding HealthWarning}" Foreground="#A15F07" TextWrapping="Wrap"><TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Margin="0,0,14,0"><TextBlock Style="{StaticResource Label}" Text="服务器"/><TextBlock Style="{StaticResource Value}" Text="{Binding Server}"/>
+                                    <TextBlock Style="{StaticResource Label}" Text="设备名称" Margin="0,18,0,7"/><TextBlock Style="{StaticResource Value}" Text="{Binding Device}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1"><TextBlock Style="{StaticResource Label}" Text="虚拟 IP"/><TextBlock Style="{StaticResource Value}" Text="{Binding VirtualIp}" FontFamily="Consolas" FontSize="19"/>
+                                    <TextBlock Style="{StaticResource Label}" Text="当前外层路径" Margin="0,18,0,7"/><TextBlock Style="{StaticResource Value}" Text="{Binding Path}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <UniformGrid Columns="3" Margin="0,14,0,0">
+                            <Border Style="{StaticResource Card}" Margin="0,0,9,0" Padding="18"><StackPanel><TextBlock Style="{StaticResource Label}" Text="TCP 连接数"/><TextBlock Text="{Binding TcpConnections}" FontSize="27" FontWeight="SemiBold"/><TextBlock Text="本机 ↔ EqLink 网段" Foreground="#63748C" FontSize="11" Margin="0,5,0,0"/></StackPanel></Border>
+                            <Border Style="{StaticResource Card}" Margin="4,0,4,0" Padding="18"><StackPanel><TextBlock Style="{StaticResource Label}" Text="↑ 上传速率"/><TextBlock Text="{Binding Upload}" FontSize="23" FontWeight="SemiBold"/><TextBlock Text="虚拟网卡发送" Foreground="#63748C" FontSize="11" Margin="0,5,0,0"/></StackPanel></Border>
+                            <Border Style="{StaticResource Card}" Margin="9,0,0,0" Padding="18"><StackPanel><TextBlock Style="{StaticResource Label}" Text="↓ 下载速率"/><TextBlock Text="{Binding Download}" FontSize="23" FontWeight="SemiBold"/><TextBlock Text="虚拟网卡接收" Foreground="#63748C" FontSize="11" Margin="0,5,0,0"/></StackPanel></Border>
+                        </UniformGrid>
+                        <TextBlock Text="{Binding MetricDetails}" Foreground="#63748C" FontSize="11" Margin="4,10,0,8" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="连接设置">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,16,0,0">
+                    <Border Style="{StaticResource Card}"><StackPanel>
+                        <TextBlock Text="连接方式" Style="{StaticResource Value}"/><TextBlock Text="自动模式优先 UDP，故障时使用 TCP；稳定的 TCP 会话不会被强制切换。" Foreground="#63748C" Margin="0,8,0,16" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" IsEnabled="{Binding CanConfigure}"><ComboBox x:Name="ModeBox" Width="180" SelectedIndex="0" AutomationProperties.Name="连接模式"><ComboBoxItem Content="自动" Tag="Auto"/><ComboBoxItem Content="仅 UDP" Tag="UdpOnly"/><ComboBoxItem Content="仅 TCP" Tag="TcpOnly"/></ComboBox><Button Content="保存模式" Click="ApplyMode_Click" Margin="12,0,0,0"/></StackPanel>
+                        <Separator Margin="0,22,0,18" Background="#E1E7F0"/>
+                        <TextBlock Text="出口网卡与专用 DNS" Style="{StaticResource Value}"/><TextBlock Text="{Binding Egress}" Foreground="#63748C" Margin="0,8,0,12" TextWrapping="Wrap"/>
+                        <Button x:Name="EgressSettingsButton" Content="配置出口与 DNS…" Click="Egress_Click" HorizontalAlignment="Left" IsEnabled="{Binding CanConfigure}"/>
+                    </StackPanel></Border>
+                    <Border Style="{StaticResource Card}" Margin="0,14,0,0"><StackPanel>
+                        <TextBlock Text="虚拟地址" Style="{StaticResource Value}"/><TextBlock Text="地址由服务器最终确认。自动分配的地址会保留；静态申请被拒绝时不会换用其他地址。" Foreground="#63748C" Margin="0,8,0,16" TextWrapping="Wrap"/>
+                        <WrapPanel IsEnabled="{Binding CanConfigure}"><ComboBox x:Name="AddressModeBox" Width="180" SelectedIndex="0" AutomationProperties.Name="地址分配方式" SelectionChanged="AddressMode_Changed"><ComboBoxItem Content="服务器自动分配" Tag="Auto"/><ComboBoxItem Content="申请静态 IP" Tag="Static"/></ComboBox>
+                            <TextBox x:Name="StaticIpBox" Width="150" Margin="12,0,0,0" IsEnabled="False" AutomationProperties.Name="申请的静态 IPv4" ToolTip="例如 172.21.10.10"/><Button Content="保存地址" Click="AddressSave_Click" Margin="12,0,0,0"/></WrapPanel>
+                        <TextBlock Text="修改地址或出口前请先断开连接。" Foreground="#63748C" FontSize="12" Margin="0,13,0,0"/>
+                    </StackPanel></Border>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <TabItem Header="域名覆写">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,16,0,0">
+                    <Border Style="{StaticResource Card}"><StackPanel>
+                        <TextBlock Text="EqLink 独立 hosts" Style="{StaticResource Value}"/>
+                        <TextBlock Text="将完整域名绑定到当前 VPN 网段的 IPv4。每行写“IP 域名”，支持多个别名和 # 注释；保存后立即应用。" Foreground="#63748C" Margin="0,8,0,14" TextWrapping="Wrap"/>
+                        <WrapPanel Margin="0,0,0,12"><CheckBox x:Name="HostsEnabledBox" Content="启用当前网络的域名覆写" IsChecked="{Binding HostsEnabled}" IsEnabled="{Binding CanEditHosts}" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                            <Button x:Name="HostsSaveButton" Content="保存覆写" Click="HostsSave_Click" IsEnabled="{Binding CanEditHosts}"/><Button Content="重新读取" Click="HostsReload_Click" IsEnabled="{Binding CanEditHosts}" Margin="12,0,0,0"/></WrapPanel>
+                        <TextBox x:Name="HostsBox" Text="{Binding HostsText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" AcceptsTab="True" MinHeight="160" MaxHeight="280" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" IsEnabled="{Binding CanEditHosts}" AutomationProperties.Name="EqLink 域名覆写列表" ToolTip="每行：虚拟 IPv4 域名，例如 10.88.0.2 service.example.test"/>
+                        <TextBlock Text="{Binding HostsState}" Foreground="#63748C" Margin="0,12,0,0" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding HostsResult}" Foreground="#087F6B" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                    </StackPanel></Border>
+                    <TextBlock Text="配置按 EqLink 网络独立保存，生效时仅同步系统 hosts 中的 EqLink 专属区块，保留其他条目。使用 Windows 系统解析的应用可使用映射；应用自带 DoH 或显式代理可能使用自己的解析。断开 VPN 后域名仍指向虚拟地址，访问受网段保护限制。" Foreground="#63748C" Margin="4,14,4,8" TextWrapping="Wrap"/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <TabItem Header="设备与诊断">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,16,0,0">
+                    <Border Style="{StaticResource Card}"><StackPanel>
+                        <TextBlock Text="通用入网包" Style="{StaticResource Value}"/><TextBlock Text="同一份 .eqlink 文件可供多台机器入网。选择文件即可导入，首次连接时自动登记独立身份。" Foreground="#63748C" Margin="0,8,0,16" TextWrapping="Wrap"/>
+                        <Button Content="选择并导入 .eqlink…" Click="Browse_Click" HorizontalAlignment="Left" IsEnabled="{Binding CanConfigure}"/>
+                        <TextBlock Text="{Binding Registration}" Margin="0,14,0,0" FontWeight="SemiBold"/>
+                    </StackPanel></Border>
+                    <Border Style="{StaticResource Card}" Margin="0,14,0,0"><StackPanel>
+                        <TextBlock Text="网络保护与诊断" Style="{StaticResource Value}"/><TextBlock Text="{Binding Protection}" Foreground="#63748C" Margin="0,8,0,16" TextWrapping="Wrap"/>
+                        <WrapPanel><Button x:Name="ProtectionButton" Content="{Binding ProtectionAction}" Click="Protection_Click" IsEnabled="{Binding CanConfigure}"/><Button Content="导出诊断…" Click="Diagnostics_Click" Margin="12,0,0,0" IsEnabled="{Binding CanRead}"/></WrapPanel>
+                        <TextBlock Text="{Binding ErrorCode}" Foreground="#B23C30" Margin="0,14,0,0" TextWrapping="Wrap"/>
+                        <TextBlock Text="诊断只包含状态、路由、组件信息和脱敏事件。通用包含可复用入网凭证，请妥善保管。" Foreground="#63748C" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap"/>
+                    </StackPanel></Border>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+        </TabControl>
+        <Border Grid.Row="2" Background="White" BorderBrush="#E1E7F0" BorderThickness="0,1,0,0" Padding="28,0">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <Button x:Name="ConnectButton" Content="连接" Width="112" Background="#1765B7" Foreground="White" BorderBrush="#1765B7" FontWeight="SemiBold" Click="Connect_Click" IsEnabled="{Binding CanConnect}"/>
+                    <Button x:Name="DisconnectButton" Content="断开" Width="88" Margin="10,0,0,0" Click="Disconnect_Click" IsEnabled="{Binding CanDisconnect}"/>
+                </StackPanel>
+                <StackPanel VerticalAlignment="Center"><TextBlock Text="使用虚拟 IP 访问其他设备" FontWeight="SemiBold"/><TextBlock Text="外层切换可能中断现有应用连接" Foreground="#63748C" FontSize="11" Margin="0,4,0,0"/></StackPanel>
+            </DockPanel>
+        </Border>
     </Grid>
-    </ScrollViewer>
 </Window>

@@ -41,9 +41,14 @@ internal sealed class ServerFiles(string root)
     internal static void AtomicWrite(string path, string text)
     {
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        File.WriteAllText(temp, text, new UTF8Encoding(false));
-        if (OperatingSystem.IsLinux()) File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        File.Move(temp, path, true);
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (OperatingSystem.IsLinux()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        try
+        {
+            using (var file = new FileStream(temp, options)) { file.Write(Encoding.UTF8.GetBytes(text)); file.Flush(true); }
+            File.Move(temp, path, true);
+        }
+        finally { File.Delete(temp); }
     }
 
     internal void Render(ServerState state)
@@ -51,8 +56,8 @@ internal sealed class ServerFiles(string root)
         state.Settings.Validate();
         var s = state.Settings;
         var ovpn = ConfigRenderer.ServerOpenVpn(s, Root);
-        var hy = s.EnableUdp ? ConfigRenderer.ServerHysteria(s, state.Devices) : null;
-        var xr = s.EnableTcp ? ConfigRenderer.ServerXray(s, state.Devices) : null;
+        var hy = s.EnableUdp ? state.SchemaVersion == 2 ? ConfigRenderer.ServerHysteria(state) : ConfigRenderer.ServerHysteria(s, state.Devices) : null;
+        var xr = s.EnableTcp ? state.SchemaVersion == 2 ? ConfigRenderer.ServerXray(state) : ConfigRenderer.ServerXray(s, state.Devices) : null;
         if (hy is not null) using (JsonDocument.Parse(hy)) { }
         if (xr is not null) using (JsonDocument.Parse(xr)) { }
         var candidate = Path.Combine(Root, "xray.candidate.json");
@@ -66,6 +71,35 @@ internal sealed class ServerFiles(string root)
             if (xr is not null) AtomicWrite(XrayFile, xr);
         }
         finally { File.Delete(candidate); }
+    }
+
+    internal void Commit(ServerState state)
+    {
+        // A recoverable journal bridges the JSON/CCD rename boundary. Every writer recovers it under the state lock.
+        AtomicWrite(Path.Combine(Root, "pending-state.json"), ConfigRenderer.Serialize(state));
+        FinishCommit(state);
+    }
+
+    internal void RecoverPending()
+    {
+        var journal = Path.Combine(Root, "pending-state.json");
+        if (File.Exists(journal)) FinishCommit(JsonSerializer.Deserialize<ServerState>(File.ReadAllText(journal), Json) ?? throw new IOException("STATE_JOURNAL_INVALID"));
+    }
+
+    private void FinishCommit(ServerState state)
+    {
+        Render(state);
+        var expected = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var d in state.Devices.Where(d => d.Active && d.AddressAssigned))
+        {
+            var name = "device-" + Guid.Parse(d.Id).ToString("N"); expected.Add(name);
+            AddressAllocation.Validate(state.Settings.OverlayCidr, d.VirtualIp);
+            AtomicWrite(Path.Combine(Ccd, name), $"ifconfig-push {d.VirtualIp} {state.Settings.Overlay().Mask}\n");
+        }
+        foreach (var path in Directory.GetFiles(Ccd, "device-*"))
+            if (!expected.Contains(Path.GetFileName(path))) File.Delete(path);
+        WriteState(state);
+        File.Delete(Path.Combine(Root, "pending-state.json"));
     }
 
     internal static void RestartOuter(ServerSettings s)
@@ -174,9 +208,24 @@ internal sealed class Pki(ServerFiles files)
         return (cert, key, tls);
     }
 
+    internal (string Cert, string TlsKey) SignDevice(string cn, string csrPem)
+    {
+        var csr = At(cn + ".csr"); var cert = At(cn + ".crt"); var tls = At(cn + ".tls-crypt-v2.key");
+        ServerFiles.AtomicWrite(csr, csrPem);
+        try
+        {
+            ProcessRunner.Run("openssl", "ca", "-config", CaConfig, "-batch", "-notext", "-extensions", "client_cert", "-subj", "/CN=" + cn, "-in", csr, "-out", cert);
+            ProcessRunner.Run("openvpn", "--tls-crypt-v2", At("tls-crypt-v2-server.key"), "--genkey", "tls-crypt-v2-client", tls);
+            RestrictFiles();
+            return (cert, File.ReadAllText(tls));
+        }
+        finally { File.Delete(csr); File.Delete(tls); }
+    }
+
     internal void Revoke(string cert)
     {
-        ProcessRunner.Run("openssl", "ca", "-config", CaConfig, "-batch", "-revoke", cert);
+        var result = ProcessRunner.RunResult("openssl", "ca", "-config", CaConfig, "-batch", "-revoke", cert);
+        if (result.ExitCode != 0 && !result.StandardError.Contains("already revoked", StringComparison.OrdinalIgnoreCase)) throw new IOException("CERTIFICATE_REVOKE_FAILED");
         RefreshCrl();
     }
 

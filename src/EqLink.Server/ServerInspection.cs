@@ -37,6 +37,11 @@ internal static class ServerInspection
                 hyAuthenticationMatches = activeDevices.Length==0
                     ? hyAuthType=="command" && Text(auth,"command")=="/bin/false"
                     : hyAuthType=="userpass" && hyUsers==activeDevices.Length && activeDevices.All(d=>users.TryGetProperty(d.Id,out var password) && password.GetString()==d.HysteriaPassword);
+                if (state.SchemaVersion == 2)
+                {
+                    hyUsers = activeDevices.Length + state.Grants.Count(g => g.Active);
+                    hyAuthenticationMatches = hyAuthType == "http" && auth.TryGetProperty("http",out var backend) && Text(backend,"url") == $"http://127.0.0.1:{s.AuthPort}/auth";
+                }
             }
             var expectedAcl = new[] { $"direct(127.0.0.1, tcp/{s.OpenVpnPort})", $"direct(127.0.0.1, tcp/{s.HealthPort})", "reject(all)" };
             hyRestricted = acl is string?[] entries && entries.SequenceEqual(expectedAcl) &&
@@ -49,6 +54,7 @@ internal static class ServerInspection
             var actual = JsonNode.Parse(xr.RootElement.GetRawText())!;
             xrRestricted = JsonNode.DeepEquals(expected["routing"], actual["routing"]) && JsonNode.DeepEquals(expected["outbounds"], actual["outbounds"]);
             var expectedClients = JsonNode.Parse(ConfigRenderer.ServerXray(s, activeDevices))!["inbounds"]![0]!["settings"]!["clients"];
+            if (state.SchemaVersion == 2) expectedClients = JsonNode.Parse(ConfigRenderer.ServerXray(state))!["inbounds"]![0]!["settings"]!["clients"];
             vlessAuthenticationMatches = JsonNode.DeepEquals(expectedClients,actual["inbounds"]![0]!["settings"]!["clients"]);
             vlessUsers = xr.RootElement.GetProperty("inbounds").EnumerateArray().Sum(v=>v.GetProperty("settings").GetProperty("clients").GetArrayLength());
             foreach(var rule in xr.RootElement.GetProperty("routing").GetProperty("rules").EnumerateArray())
@@ -56,6 +62,20 @@ internal static class ServerInspection
                     port = Text(rule,"port"), network = Text(rule,"network"), outboundTag = Text(rule,"outboundTag") });
         }
         var overlay = s.Overlay();
+        int? runtimeVlessUsers = null;
+        if (s.EnableTcp && state.SchemaVersion == 2)
+        {
+            try
+            {
+                var count = ProcessRunner.RunResult("xray", "api", "inboundusercount", "--server=127.0.0.1:" + s.XrayApiPort, "-tag=vless-in");
+                if (count.ExitCode == 0)
+                {
+                    using var document = JsonDocument.Parse(count.StandardOutput);
+                    runtimeVlessUsers = document.RootElement.TryGetProperty("count",out var value) ? int.Parse(value.ToString(),CultureInfo.InvariantCulture) : 0;
+                }
+            }
+            catch { } // Report unavailable rather than replacing runtime evidence with the rendered config count.
+        }
         var active = state.Devices.Where(d=>d.Active).ToArray();
         var serverCertificate = Certificate(Path.Combine(files.Pki,"server.crt"));
         var hyCertificate = s.EnableUdp ? Certificate(s.HysteriaCertificate) : null;
@@ -68,23 +88,25 @@ internal static class ServerInspection
             schemaVersion=1, timestamp=DateTimeOffset.UtcNow, version=typeof(ServerInspection).Assembly.GetName().Version?.ToString(),
             components=ComponentDiagnostics.Read(ComponentDiagnostics.OnPath("hysteria"),ComponentDiagnostics.OnPath("xray"),ComponentDiagnostics.OnPath("openvpn")),
             scope="Read-only selected fields; no private material or raw configuration",
-            expected = new { s.PublicHost,s.TcpPort,s.UdpPort,s.OpenVpnPort,s.HealthPort,s.ManagementPort,s.OverlayCidr,s.EnableUdp,s.EnableTcp,s.HysteriaServerName,s.RealityTarget,s.RealityServerName,s.XhttpPath,activeDevices=active.Length },
+            expected = new { state.SchemaVersion,state.NetworkId,s.PublicHost,s.TcpPort,s.UdpPort,s.OpenVpnPort,s.HealthPort,s.ManagementPort,s.AuthPort,s.XrayApiPort,s.OverlayCidr,s.EnableUdp,s.EnableTcp,s.HysteriaServerName,s.RealityTarget,s.RealityServerName,s.XhttpPath,activeDevices=active.Length,activeEnrollmentGrants=state.Grants.Count(g=>g.Active) },
             runtime = new
             {
                 architecture=System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
                 openVpn=Listeners(s.OpenVpnPort),health=Listeners(s.HealthPort),management=Listeners(s.ManagementPort),
                 xray=Listeners(s.TcpPort),hysteria=Listeners(s.UdpPort,true),
                 virtualAddresses,
-                openVpnDirectives=directives, hysteriaAuthType=hyAuthType, hysteriaAuthEntries=hyUsers, vlessAuthEntries=vlessUsers,
+                openVpnDirectives=directives, hysteriaAuthType=hyAuthType, hysteriaAuthEntries=hyUsers, renderedVlessAuthEntries=vlessUsers, runtimeVlessAuthEntries=runtimeVlessUsers,
                 hysteriaAcl=acl,xrayRules=publicRules,
                 certificate=serverCertificate,hysteriaCertificate=hyCertificate,
                 crl,sessions=Sessions(files,state)
             },
             checks = new
             {
-                openVpnLoopbackOnly=Loopback(s.OpenVpnPort),healthLoopbackOnly=Loopback(s.HealthPort),managementLoopbackOnly=Loopback(s.ManagementPort),
+                openVpnLoopbackOnly=Loopback(s.OpenVpnPort),healthRestrictedToLoopbackAndOverlay=tcp.Any(p=>p.Port==s.HealthPort && IPAddress.IsLoopback(p.Address)) && tcp.Where(p=>p.Port==s.HealthPort).All(p=>IPAddress.IsLoopback(p.Address)||p.Address.ToString()==overlay.ServerIp),managementLoopbackOnly=Loopback(s.ManagementPort),
+                authenticationLoopbackOnly=state.SchemaVersion!=2 || Loopback(s.AuthPort),xrayApiLoopbackOnly=state.SchemaVersion!=2 || !s.EnableTcp || Loopback(s.XrayApiPort),
+                runtimeVlessCountMatches=state.SchemaVersion!=2 || !s.EnableTcp || runtimeVlessUsers==active.Length+state.Grants.Count(g=>g.Active),
                 topologySubnet=directives.Contains("topology subnet"),clientInterconnect=directives.Contains("client-to-client"),dcoDisabled=directives.Contains("disable-dco"),
-                hysteriaEntryCountMatches=!s.EnableUdp || hyUsers==active.Length,vlessEntryCountMatches=!s.EnableTcp || vlessUsers==active.Length,
+                hysteriaEntryCountMatches=!s.EnableUdp || hyUsers==active.Length+state.Grants.Count(g=>g.Active),vlessEntryCountMatches=!s.EnableTcp || vlessUsers==active.Length+state.Grants.Count(g=>g.Active),
                 hysteriaAuthenticationMatches=hyAuthenticationMatches,vlessAuthenticationMatches,
                 hysteriaTargetsRestricted=hyRestricted,xrayTargetsRestricted=xrRestricted,
                 virtualServerAddressPresent=virtualAddresses.Any(a=>a.address==overlay.ServerIp && a.PrefixLength==24),

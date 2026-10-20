@@ -137,6 +137,10 @@ def main():
         raise ValueError("Deployment is not pinned to the requested node")
     check_tun(kube, node, args.tun_resource, args.namespace)
     pod = pod_for(kube, args.namespace)
+    if not args.rollback_from:
+        version = kube.run("exec", "-n", args.namespace, pod["metadata"]["name"], "-c", "server", "--", "python3", "-c", "import json;print(json.load(open('/etc/eqlink/state.json')).get('schemaVersion',1))").decode().strip()
+        if version != "2":
+            raise ValueError("Identity migration required. Use migrate-v2.py with independent management and an offline state backup before upgrading the image.")
     if pod["spec"]["nodeName"] != args.node:
         raise ValueError("Running Pod is on another node")
     if args.rollback_from:

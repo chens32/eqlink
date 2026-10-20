@@ -1,7 +1,10 @@
 name: CI
 
 on:
-  # CI is paused in repository settings. Re-enable explicitly when ready.
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -45,6 +48,9 @@ jobs:
         run: |
           python -m compileall -q packaging tools
           python packaging/k3s/test-upgrade.py
+          python packaging/k3s/test-migration.py
+          python packaging/k3s/test_bundle_trust.py
+          python tools/check-release.py
       - name: Validate generated Kubernetes resources
         shell: bash
         run: |

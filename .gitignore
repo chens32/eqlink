@@ -42,15 +42,33 @@ credentials*.yml
 *.password.*
 server-settings.json
 state.json
+pending-state.json
+address.json
+identity.json
+.xray-user-*.json
+.state.lock
+.instance.lock
 profile.json
 egress.json
 protection.json
+mode.json
+hosts.json
+hosts-overrides.json
+registration.json
+grant.json
+grants.json
 .kube/
 kubeconfig
 kubeconfig.*
+kubeconfig-*
 packaging/k3s/private/
 secrets/
 pki/
+/private/
+/runtime/
+/backups/
+/.codex/
+/.agents/
 
 # Device bundles, runtime VPN configuration, certificates, and keys.
 *.eqlink
@@ -72,6 +90,10 @@ id_ed25519
 *.dll
 *.msi
 *.cab
+*.wixpdb
+*.wixobj
+*.nupkg
+*.snupkg
 *.zip
 *.tar
 *.tar.gz
@@ -86,6 +108,12 @@ id_ed25519
 *.etl
 *.log
 *.dmp
+*.dump
+*.sarif
+*.trx
+*.db
+*.db-shm
+*.db-wal
 *.bak
 *.tmp
 *.swp

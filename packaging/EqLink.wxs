@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <!-- ProductCode is stable within this test release; rotate it for the next major upgrade. -->
-  <Package Name="EqLink" Manufacturer="EqLink" Version="0.2.0" ProductCode="9F3D78FB-05FB-41AA-A340-1A3665FF28E2" UpgradeCode="A2D65259-0504-4A2F-969A-2660B3E8C0CD" Scope="perMachine">
+  <!-- ProductCode is unique to 1.0.0; UpgradeCode retains the existing installation family. -->
+  <Package Name="EqLink" Manufacturer="EqLink" Version="1.0.0" ProductCode="0519EC90-8820-4CE7-B6C4-048B156F8CBC" UpgradeCode="A2D65259-0504-4A2F-969A-2660B3E8C0CD" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer EqLink version is installed." Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
     <!-- 0.1.x apphosts used FileVersion 1.0.x. Permit the intentional correction to
-         the product's 0.2.0 version during a detected major upgrade, before costing. -->
+         the product version during a detected major upgrade, before costing. -->
     <SetProperty Id="REINSTALLMODE" Value="amus" Before="CostInitialize" Sequence="both" Condition="WIX_UPGRADE_DETECTED" />
     <CustomAction Id="RemoveEqLinkProtection" FileRef="ServiceExecutable" ExeCommand="--network-protection-remove" Execute="deferred" Impersonate="no" Return="check" />
     <InstallExecuteSequence>
