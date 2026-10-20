@@ -20,7 +20,7 @@ $expected = [IO.Path]::GetFullPath((Join-Path $repo 'artifacts\server')) + [IO.P
 if (-not $stageFull.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe stage path.' }
 if (Test-Path -LiteralPath $stageFull) { Remove-Item -LiteralPath $stageFull -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stageFull | Out-Null
-dotnet publish (Join-Path $repo 'src\EqLink.Server\EqLink.Server.csproj') -c Release -r $rid --self-contained true -p:PublishSingleFile=true "-p:RestoreSources=$downloads" -p:NuGetAudit=false -o $stageFull
+dotnet publish -m:1 -p:UseSharedCompilation=false (Join-Path $repo 'src\EqLink.Server\EqLink.Server.csproj') -c Release -r $rid --self-contained true -p:PublishSingleFile=true "-p:RestoreSources=$downloads" -p:NuGetAudit=false -o $stageFull
 if ($LASTEXITCODE -ne 0) { throw 'Server publish failed.' }
 $hysteriaAsset = if ($Arch -eq 'amd64') { 'hysteria-linux-amd64' } else { 'hysteria-linux-arm64' }
 Copy-Item -LiteralPath (Join-Path $downloads $hysteriaAsset) -Destination (Join-Path $stageFull 'hysteria') -Force
@@ -37,6 +37,11 @@ try {
 Copy-Item -LiteralPath (Join-Path $downloads 'LICENSE.md') -Destination (Join-Path $stageFull 'hysteria-LICENSE.md') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'install-server.sh') -Destination (Join-Path $stageFull 'install-server.sh') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'firewall-preview.py') -Destination (Join-Path $stageFull 'firewall-preview.py') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'server-settings.example.json') -Destination (Join-Path $stageFull 'server-settings.example.json') -Force
+Copy-Item -LiteralPath (Join-Path $repo 'docs/server-installation.md') -Destination (Join-Path $stageFull 'README.md') -Force
+Copy-Item -LiteralPath (Join-Path $repo 'docs/release-1.0.0.zh-CN.md') -Destination (Join-Path $stageFull 'README.zh-CN.md') -Force
+python (Join-Path $PSScriptRoot 'prepare-licenses.py') --target $stageFull --runtime-pack $runtimeKey --runtime-pack $aspnetKey
+if ($LASTEXITCODE -ne 0) { throw 'License notice collection failed.' }
 $archivePath = Join-Path $repo "artifacts\server\eqlink-server-$Arch.tar.gz"
 tar -C $stageFull -czf $archivePath .
 if ($LASTEXITCODE -ne 0) { throw 'Server archive failed.' }

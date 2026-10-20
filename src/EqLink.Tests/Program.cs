@@ -17,6 +17,9 @@ internal static partial class Program
     {
         try
         {
+            if (args.FirstOrDefault() == "--hosts-only") { await HostsOverrides(); return 0; }
+            if (args.FirstOrDefault() == "--outer-failure-only") { OuterFailures(); return 0; }
+            if (args.FirstOrDefault() == "--hysteria-trust-only") { HysteriaTrustChecks(); OuterFailures(); if (args.Length > 1) await HysteriaScopedCaTransport(args[1]); return 0; }
             if (args.Length > 0 && args[0] == "--container-smoke")
             {
                 await ContainerSmoke.RunAsync();
@@ -26,12 +29,22 @@ internal static partial class Program
             var ovpnPort = FreePort();
             var healthPort = FreePort();
             var profile = Profile(cert, key, ovpnPort, healthPort);
+            if (args.FirstOrDefault() == "--traffic-only") { await TrafficCounters(profile); return 0; }
+            if (args.FirstOrDefault() == "--tls-only") { await ControlTls(profile); return 0; }
             Bundle(profile);
+            OuterFailures();
+            HysteriaTrustChecks();
+            EnrollmentAndHealth();
+            await ControlTls(profile);
+            await ControlResponseLimits();
+            await TrafficTools();
             Config(profile);
             EgressSettings();
+            await HostsOverrides();
             await Selector(profile);
             await SelectorDeadlinesAndHealth(profile);
             if (OperatingSystem.IsWindows()) await PhysicalEgressGuards(profile);
+            if (OperatingSystem.IsWindows()) await TrafficCounters(profile);
             if (args.Length >= 1) XrayConfig(args[0]);
             if (args.Length >= 2) await HysteriaConfig(args[1], cert, key);
             if (args.Length >= 3 && args[2] == "--real") await RealOuterTests(args[0], args[1], cert, key);

@@ -14,9 +14,9 @@ command = ['git', 'ls-files', '--cached', '-z']
 if not args.tracked_only:
     command += ['--others', '--exclude-standard']
 paths = sorted({p.decode('utf-8') for p in subprocess.check_output(command, cwd=ROOT).split(b'\0') if p})
-forbidden_parts = {'artifacts', 'bin', 'obj', '.dotnet', '.nuget', '.vs', '.venv', '__pycache__', '.kube', 'pki', 'secrets'}
+forbidden_parts = {'artifacts', 'bin', 'obj', '.dotnet', '.nuget', '.vs', '.venv', '__pycache__', '.kube', 'pki', 'secrets', '.codex', '.agents'}
 forbidden_suffixes = {'.eqlink', '.dpapi', '.ovpn', '.key', '.pem', '.pfx', '.p12', '.cer', '.crt', '.jks', '.keystore', '.exe', '.dll', '.msi', '.cab', '.zip', '.tar', '.gz', '.tgz', '.7z', '.pcap', '.pcapng', '.etl', '.log', '.dmp', '.bak'}
-forbidden_names = {'server-settings.json', 'state.json', 'profile.json', 'egress.json', 'protection.json', 'kubeconfig', 'id_rsa', 'id_ed25519'}
+forbidden_names = {'server-settings.json', 'state.json', 'pending-state.json', 'identity.json', 'address.json', 'profile.json', 'egress.json', 'protection.json', 'mode.json', 'hosts.json', 'hosts-overrides.json', 'registration.json', 'grant.json', 'grants.json', 'kubeconfig', 'id_rsa', 'id_ed25519'}
 private_key = re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----\s*(?:\\[rn]|\r?\n)?[A-Za-z0-9+/=]{32,}')
 credential_url = re.compile(rb'https?://[^\s/"<>:@]{1,80}:[^\s/"<>@]{4,}@')
 findings = []
@@ -25,7 +25,7 @@ for name in paths:
     relative = PurePosixPath(name)
     lowered = name.lower()
     base = relative.name.lower()
-    bad_name = (base in forbidden_names or 'credentials' in base or '.passphrase' in base or '.password' in base or base.endswith('.pass')
+    bad_name = (base in forbidden_names or base.startswith('.xray-user-') or 'credentials' in base or '.passphrase' in base or '.password' in base or base.endswith('.pass')
                 or (base.startswith('.env') and base != '.env.example') or base.startswith('kubeconfig.'))
     bad_path = any(part.lower() in forbidden_parts for part in relative.parts)
     if lowered.startswith('packaging/k3s/private/') or bad_name or bad_path or relative.suffix.lower() in forbidden_suffixes:

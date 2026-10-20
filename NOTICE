@@ -1,0 +1,7 @@
+EqLink
+Copyright (C) 2026 chens32 and EqLink contributors
+
+EqLink's original source is licensed under GPL-3.0-only. See LICENSE.
+Third-party programs and runtime components retain their own licenses.
+See packaging/THIRD_PARTY.md and docs/licensing.md for component boundaries,
+notices, source references and draft-release redistribution gates.

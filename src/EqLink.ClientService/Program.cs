@@ -22,6 +22,7 @@ internal static class Program
                 if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)) return 5;
                 if (System.Diagnostics.Process.GetProcessesByName("EqLink.ClientService").Any(p => p.Id != Environment.ProcessId)) return 1618;
                 using var guard = new WindowsNetworkProtection();
+                new WindowsHostsFile().ApplyAsync([]).GetAwaiter().GetResult();
                 guard.Remove();
                 if (args[0] == "--network-protection-reset")
                 {

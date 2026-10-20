@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
-  <Bundle Name="EqLink" Manufacturer="EqLink" Version="0.2.0" UpgradeCode="CB68C1F5-90D8-4BFC-AD18-C795B33A2D5B">
+  <Bundle Name="EqLink" Manufacturer="EqLink" Version="1.0.0" UpgradeCode="CB68C1F5-90D8-4BFC-AD18-C795B33A2D5B">
     <Variable Name="InstalledOpenVpnVersion" Type="version" Value="0.0.0.0" />
     <util:FileSearch Id="OpenVpnExecutable" Path="[ProgramFiles64Folder]OpenVPN\bin\openvpn.exe" Variable="InstalledOpenVpnVersion" Result="version" />
     <BootstrapperApplication>

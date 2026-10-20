@@ -34,4 +34,4 @@ python packaging/k3s/test-upgrade.py
 
 Git 保存可审查源码、脚本和文档；`.eqlink`、生产证书/状态、诊断原文、抓包及私密备份独立保存。既有 0.2.0 二进制的来源以原 `release-manifest.json` / `SHA256SUMS` 为准，不能用新的源码提交替换其历史构建身份。
 
-项目级许可证目前未指定；第三方组件的许可和分发说明见 [THIRD_PARTY](../packaging/THIRD_PARTY.md)。
+EqLink 原创源码使用 GPL-3.0-only；第三方组件保留各自许可，见 [许可审查](licensing.md)和 [THIRD_PARTY](../packaging/THIRD_PARTY.md)。

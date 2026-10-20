@@ -9,7 +9,7 @@ import tarfile
 BASE = pathlib.Path(__file__).resolve().parent
 REPO = BASE.parent.parent
 OUT = REPO / "artifacts/k3s"
-NAME = "eqlink-k3s-arm64-test-0.2.0"
+NAME = "eqlink-k3s-arm64-1.0.0"
 stage = OUT / NAME
 if stage.resolve().parent != OUT.resolve() or stage.name != NAME:
     raise SystemExit("Unsafe package staging directory")
@@ -19,12 +19,14 @@ if stage.exists():
 (stage / "tools").mkdir()
 shutil.copy2(OUT / "eqlink-server-arm64.tar", stage / "images/eqlink-server-arm64.tar")
 shutil.copy2(REPO / "artifacts/server/eqlink-server-arm64/xray", stage / "tools/xray")
-for name in ("common.py", "deploy.py", "upgrade.py", "devices.py", "import-image.sh", "README.zh-CN.md"):
+for name in ("common.py", "deploy.py", "upgrade.py", "migrate-v2.py", "devices.py", "bundle_trust.py", "import-image.sh", "README.zh-CN.md"):
     shutil.copy2(BASE / name, stage / name)
 shutil.copytree(BASE / "manifests", stage / "manifests")
 for name in ("PROVENANCE.json", "debian-packages-arm64.txt", "VALIDATION.json"):
     shutil.copy2(OUT / name, stage / name)
 shutil.copy2(REPO / "packaging/THIRD_PARTY.md", stage / "THIRD_PARTY.md")
+shutil.copy2(REPO / "LICENSE", stage / "LICENSE")
+shutil.copy2(REPO / "NOTICE", stage / "NOTICE")
 lines = []
 for path in sorted(stage.rglob("*")):
     if path.is_file():

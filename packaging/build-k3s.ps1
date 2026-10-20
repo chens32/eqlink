@@ -17,7 +17,7 @@ $linuxPython = (& wsl -d $Distribution --exec wslpath -u $pythonPath.Replace('\'
 & (Join-Path $PSScriptRoot 'build-server.ps1') -Arch arm64
 if ($LASTEXITCODE -ne 0) { throw 'ARM64 publish failed.' }
 $downloads = Join-Path $repo 'artifacts\downloads'
-dotnet publish (Join-Path $repo 'src\EqLink.Tests\EqLink.Tests.csproj') -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=true "-p:RestoreSources=$downloads" -p:NuGetAudit=false -o (Join-Path $repo 'artifacts\k3s\test-app')
+dotnet publish -m:1 -p:UseSharedCompilation=false (Join-Path $repo 'src\EqLink.Tests\EqLink.Tests.csproj') -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=true "-p:RestoreSources=$downloads" -p:NuGetAudit=false -o (Join-Path $repo 'artifacts\k3s\test-app')
 if ($LASTEXITCODE -ne 0) { throw 'ARM64 test runner publish failed.' }
 if (-not $ReuseRootfs) {
     Invoke-Linux -Arguments @('env', "EQLINK_WINDOWS_PYTHON=$linuxPython", 'bash', "$linuxRepo/packaging/k3s/build-rootfs.sh", $linuxRepo)

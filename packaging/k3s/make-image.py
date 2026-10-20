@@ -60,6 +60,7 @@ def main():
     licenses.mkdir(parents=True, exist_ok=True)
     for name in ("hysteria-LICENSE.md", "xray-LICENSE"):
         shutil.copy2(source / name, licenses / name)
+    shutil.copytree(source / "licenses", licenses, dirs_exist_ok=True)
     for folder in ("etc/eqlink", "run/eqlink", "run/eqlink-bootstrap", "run/eqlink-tls", "tmp"):
         (rootfs / folder).mkdir(parents=True, exist_ok=True)
     os.chmod(rootfs / "etc/eqlink", 0o700)
@@ -78,7 +79,7 @@ def main():
     provenance = {"createdUtc": created, "image": IMAGE, "architecture": "arm64", "builder": "debootstrap bookworm + verified ARM64 ELF files", "binarySha256": hashes, "sourceSha256": source_hashes, "debianPackagesSha256": digest(output / "debian-packages-arm64.txt")}
     config = {
         "created": created, "architecture": "arm64", "os": "linux",
-        "config": {"User": "0:0", "Env": ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C.UTF-8", "EQLINK_RUNTIME=container", "DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/.net"], "Entrypoint": ["/usr/local/bin/EqLink.Server"], "Cmd": ["serve", "--settings", "/run/eqlink-bootstrap/server-settings.json"], "WorkingDir": "/etc/eqlink", "StopSignal": "SIGTERM", "ExposedPorts": {"30443/tcp": {}, "30444/udp": {}}, "Labels": {"org.opencontainers.image.title": "EqLink ARM64 k3s test server", "org.opencontainers.image.version": "0.2.0-k3s-test", "org.opencontainers.image.description": "Single-instance OpenVPN over Hysteria2 or XHTTP+REALITY"}},
+        "config": {"User": "0:0", "Env": ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C.UTF-8", "EQLINK_RUNTIME=container", "DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/.net"], "Entrypoint": ["/usr/local/bin/EqLink.Server"], "Cmd": ["serve", "--settings", "/run/eqlink-bootstrap/server-settings.json"], "WorkingDir": "/etc/eqlink", "StopSignal": "SIGTERM", "ExposedPorts": {"30443/tcp": {}, "30444/udp": {}}, "Labels": {"org.opencontainers.image.title": "EqLink ARM64 k3s server", "org.opencontainers.image.version": "1.0.0", "org.opencontainers.image.description": "Single-instance OpenVPN over Hysteria2 or XHTTP+REALITY"}},
         "rootfs": {"type": "layers", "diff_ids": ["sha256:" + digest(layer)]},
         "history": [{"created": created, "created_by": "EqLink make-image.py: Debian packages and pinned transport executables"}]
     }
@@ -91,7 +92,7 @@ def main():
         archive.add(layer, arcname="layer.tar", recursive=False)
     provenance["imageArchiveSha256"] = digest(image)
     provenance["imageConfigId"] = "sha256:" + config_name.removesuffix(".json")
-    provenance["version"] = "0.2.0"
+    provenance["version"] = "1.0.0"
     provenance["sourceSha256"]["Directory.Build.props"] = digest(repo / "Directory.Build.props")
     (output / "PROVENANCE.json").write_text(json.dumps(provenance, indent=2))
     print("Docker archive built: " + str(image))

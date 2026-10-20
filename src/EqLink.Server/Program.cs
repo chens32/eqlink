@@ -19,11 +19,6 @@ internal static class Program
             if (args.Length == 0) throw new ArgumentException(Usage);
             var command = args[0];
             var options = Parse(args.Skip(1).ToArray());
-            if (command == "health")
-            {
-                await Health.RunAsync(int.Parse(Required(options, "port")));
-                return 0;
-            }
             var files = new ServerFiles(options.GetValueOrDefault("root", "/etc/eqlink"));
             if (command == "inspect")
             {
@@ -49,19 +44,37 @@ internal static class Program
                     Console.WriteLine($"Initialized {files.Root}. Install systemd units, open only outer ports, then start services.");
                     return 0;
                 case "add":
-                    Add(files, Required(options, "name"), Required(options, "bundle"), Required(options, "passphrase-file"), options.GetValueOrDefault("id"));
+                    throw new ArgumentException("BUNDLE_V2_REQUIRED: use enrollment-create; password device bundles are retired.");
+                case "enrollment-create":
+                    var bundlePath = Path.GetFullPath(Required(options, "bundle"));
+                    if (File.Exists(bundlePath)) throw new IOException("Bundle already exists; choose a new private output file.");
+                    var bundle = new EnrollmentService(files).CreateGrant(Required(options, "name"));
+                    var fileOptions = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+                    if (OperatingSystem.IsLinux()) fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                    using (var output = new FileStream(bundlePath, fileOptions)) { output.Write(EnrollmentBundle.Serialize(bundle)); output.Flush(true); }
+                    Console.WriteLine("Universal enrollment bundle created; protect this bearer credential. Grant: " + bundle.GrantId);
+                    return 0;
+                case "enrollment-list":
+                    foreach (var grant in files.ReadState().Grants) Console.WriteLine($"{grant.Id}  {(grant.Active ? "active" : "revoked")}  {grant.Name}");
+                    return 0;
+                case "enrollment-revoke":
+                    new EnrollmentService(files).RevokeGrant(Guid.Parse(Required(options, "id")).ToString("N"));
+                    return 0;
+                case "migrate-v2":
+                    Migrate(files, Required(options, "backup"));
                     return 0;
                 case "list":
                     foreach (var d in files.ReadState().Devices)
                         Console.WriteLine($"{d.Id}  {d.VirtualIp}  {(d.Active ? "active" : "revoked")}  {d.Name}");
                     return 0;
                 case "revoke":
-                    Revoke(files, Required(options, "id"));
+                    new EnrollmentService(files).RevokeDevice(Guid.Parse(Required(options, "id")).ToString("N"));
                     return 0;
                 case "apply":
                     var state = files.ReadState();
+                    EnrollmentService.RequireV2(state);
                     files.Render(state);
-                    ServerFiles.RestartOuter(state.Settings);
+                    Console.WriteLine("Validated durable configuration; new identities are applied through dynamic APIs. Public setting changes require a coordinated supervisor restart.");
                     return 0;
                 case "refresh-crl":
                     _ = files.ReadState();
@@ -85,7 +98,7 @@ internal static class Program
         }
     }
 
-    private const string Usage = "EqLink.Server preflight|init|serve --settings file [--root dir]; add --name text --bundle file --passphrase-file file [--root dir]; list|revoke --id uuid|apply|refresh-crl [--root dir]; inspect --json [--root dir]; backup --output private-file.tar.gz [--root dir]; health --port N; probe --kind live|ready|status";
+    private const string Usage = "EqLink.Server preflight|init|serve --settings file [--root dir]; enrollment-create --name text --bundle private-file.eqlink; enrollment-list|enrollment-revoke --id uuid; list|revoke --id uuid|apply|refresh-crl; migrate-v2 --backup private-file.tar.gz; inspect --json; backup --output private-file.tar.gz; probe --kind live|ready|status";
 
     private static Dictionary<string, string> Parse(string[] args)
     {
@@ -132,7 +145,7 @@ internal static class Program
         CheckRoutes(settings.OverlayCidr);
         if (settings.EnableTcp) ServerFiles.CheckPort(settings.TcpPort, ProtocolType.Tcp);
         if (settings.EnableUdp) ServerFiles.CheckPort(settings.UdpPort, ProtocolType.Udp);
-        foreach (var port in new[] { settings.OpenVpnPort, settings.HealthPort, settings.ManagementPort })
+        foreach (var port in new[] { settings.OpenVpnPort, settings.HealthPort, settings.ManagementPort, settings.AuthPort, settings.XrayApiPort, settings.HysteriaStatsPort })
             ServerFiles.CheckPort(port, ProtocolType.Tcp);
         if (File.Exists(files.StateFile)) throw new InvalidOperationException("Server is already initialized; use apply, not init.");
     }
@@ -167,99 +180,31 @@ internal static class Program
         Preflight(settings, files);
         files.EnsureDirectories();
         new Pki(files).Init();
-        var state = new ServerState { Settings = settings };
+        var state = new ServerState { Settings = settings, SchemaVersion = 2, NetworkId = Guid.NewGuid().ToString("N"), HysteriaApiSecret = CredentialSecrets.New() };
         files.Render(state);
         files.WriteState(state);
     }
 
-    private static void Add(ServerFiles files, string name, string bundlePath, string passphraseFile, string? requestedId)
+    private static void Migrate(ServerFiles files, string backupPath)
     {
-        if (name.Length is < 1 or > 64 || name.Any(char.IsControl)) throw new ArgumentException("Invalid device name.");
-        if (File.Exists(bundlePath)) throw new IOException("Bundle file already exists.");
-        if (OperatingSystem.IsLinux())
-        {
-            var mode = File.GetUnixFileMode(passphraseFile);
-            if ((mode & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite)) != 0)
-                throw new UnauthorizedAccessException("Passphrase file must be readable only by its owner (chmod 600).");
-        }
-        var passphrase = File.ReadAllText(passphraseFile).TrimEnd('\r', '\n');
-        if (passphrase.Length < 12) throw new ArgumentException("Bundle passphrase must contain at least 12 characters.");
+        using var offline = new FileStream(Path.Combine(files.Root,".instance.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
         var state = files.ReadState();
-        var id = requestedId is null ? Guid.NewGuid().ToString("N") : Guid.Parse(requestedId).ToString("N");
-        if (state.Devices.Any(d => d.Id == id)) throw new InvalidOperationException("Device ID already exists. Retrieve its original bundle or use a new operation ID after revoking it.");
-        var overlay = state.Settings.Overlay();
-        var prefix = overlay.ServerIp[..overlay.ServerIp.LastIndexOf('.')];
-        var used = state.Devices.Select(d => d.VirtualIp).ToHashSet(StringComparer.Ordinal);
-        var host = Enumerable.Range(10, 245).FirstOrDefault(i => !used.Contains($"{prefix}.{i}"));
-        if (host == 0) throw new InvalidOperationException("Overlay address pool exhausted.");
-        var cn = "device-" + id;
+        if (state.SchemaVersion == 2) { EnrollmentService.RequireV2(state); Console.WriteLine("Already migrated."); return; }
+        foreach (var port in new[] { state.Settings.OpenVpnPort, state.Settings.HealthPort, state.Settings.ManagementPort }) ServerFiles.CheckPort(port, ProtocolType.Tcp);
+        if (state.Settings.EnableTcp) ServerFiles.CheckPort(state.Settings.TcpPort, ProtocolType.Tcp);
+        if (state.Settings.EnableUdp) ServerFiles.CheckPort(state.Settings.UdpPort, ProtocolType.Udp);
+        var destination = Path.GetFullPath(backupPath);
+        if (!OperatingSystem.IsLinux() || destination.StartsWith(files.Root.TrimEnd('/') + "/", StringComparison.Ordinal)) throw new ArgumentException("Private backup must be outside state directory on Linux.");
+        using (var backup = new FileStream(destination, new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite })) backup.Flush(true);
+        ProcessRunner.Run("tar", "--exclude=./.state.lock", "-C", files.Root, "-czf", destination, ".");
         var pki = new Pki(files);
-        var (cert, key, tls) = pki.AddDevice(cn);
-        var record = new DeviceRecord
-        {
-            Id = id, Name = name, VirtualIp = $"{prefix}.{host}",
-            HysteriaPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant(),
-            VlessId = Guid.NewGuid(), CertificatePath = cert, Active = true
-        };
-        var s = state.Settings;
-        var profile = new DeviceProfile
-        {
-            DeviceId = id, DeviceName = name, VirtualIp = record.VirtualIp, OverlayCidr = s.OverlayCidr,
-            ServerIp = overlay.ServerIp, PublicHost = s.PublicHost, UdpPort = s.UdpPort, TcpPort = s.TcpPort,
-            OpenVpnPort = s.OpenVpnPort, HealthPort = s.HealthPort, EnableUdp = s.EnableUdp, EnableTcp = s.EnableTcp,
-            HysteriaServerName = s.HysteriaServerName,
-            HysteriaCertificateSha256 = s.EnableUdp ? ConfigRenderer.CertificateFingerprint(File.ReadAllText(s.HysteriaCertificate)) : "",
-            HysteriaAuth = id + ":" + record.HysteriaPassword, VlessId = record.VlessId,
-            RealityServerName = s.RealityServerName, RealityPublicKey = s.RealityPublicKey,
-            RealityShortId = s.RealityShortId, XhttpPath = s.XhttpPath,
-            CaPem = File.ReadAllText(Path.Combine(files.Pki, "ca.crt")), CertificatePem = File.ReadAllText(cert),
-            PrivateKeyPem = File.ReadAllText(key), TlsCryptV2Key = File.ReadAllText(tls)
-        };
-        var encrypted = BundleCrypto.Encrypt(profile, passphrase);
-        state.Devices.Add(record);
-        var committed = false;
-        var bundleCreated = false;
-        try
-        {
-            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
-            if (OperatingSystem.IsLinux()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            using (var output = new FileStream(bundlePath, options))
-            {
-                bundleCreated = true;
-                output.Write(encrypted);
-            }
-            if (OperatingSystem.IsLinux()) File.SetUnixFileMode(bundlePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            files.Render(state);
-            ServerFiles.AtomicWrite(Path.Combine(files.Ccd, cn), $"ifconfig-push {record.VirtualIp} {overlay.Mask}\n");
-            files.WriteState(state);
-            committed = true;
-        }
-        finally { if (bundleCreated && !committed) File.Delete(bundlePath); }
-        File.Delete(key);
-        File.Delete(tls);
-        ServerFiles.RestartOuter(s);
-        Console.WriteLine($"Device {id} assigned {record.VirtualIp}; encrypted bundle written to {bundlePath}.");
+        foreach (var device in state.Devices.Where(d => d.Active)) { pki.Revoke(device.CertificatePath); device.Active = false; }
+        state = state with { SchemaVersion = 2, NetworkId = Guid.NewGuid().ToString("N"), HysteriaApiSecret = CredentialSecrets.New(), Grants = [] };
+        files.Commit(state);
+        Console.WriteLine("Migration complete. Legacy identities disabled. CA, REALITY keys and network preserved. Create a universal enrollment bundle before starting clients.");
     }
 
-    private static void Revoke(ServerFiles files, string id)
-    {
-        var state = files.ReadState();
-        var record = state.Devices.SingleOrDefault(d => d.Id == id && d.Active) ?? throw new ArgumentException("Active device not found.");
-        new Pki(files).Revoke(record.CertificatePath);
-        record.Active = false;
-        files.Render(state);
-        File.Delete(Path.Combine(files.Ccd, "device-" + record.Id));
-        files.WriteState(state);
-        var kicked = OpenVpnManagement.Kill(state.Settings.ManagementPort, Path.Combine(files.Pki, "management.password"), "device-" + record.Id);
-        if (!kicked)
-        {
-            if (ServerRuntime.IsContainer) ServerRuntime.Request("restart-openvpn");
-            else if (ProcessRunner.Exists("systemctl") && ProcessRunner.RunResult("systemctl", "is-active", "--quiet", "eqlink-openvpn").ExitCode == 0)
-                ProcessRunner.Run("systemctl", "restart", "eqlink-openvpn");
-        }
-        ServerFiles.RestartOuter(state.Settings);
-        Console.WriteLine($"Revoked device {id}.");
-    }
+
 }
 
 internal static class OpenVpnManagement
@@ -292,6 +237,21 @@ internal static class OpenVpnManagement
             if (!connected) { writer.WriteLine("quit"); return true; }
             writer.WriteLine("kill " + cn);
             var kicked = ReadUntil(reader, "SUCCESS:", 10);
+            if (kicked)
+            {
+                kicked = false;
+                for (var attempt = 0; attempt < 10; attempt++)
+                {
+                    Thread.Sleep(100); writer.WriteLine("status 3"); var present = false; var complete = false;
+                    for (var i = 0; i < 4096; i++)
+                    {
+                        var statusLine = reader.ReadLine(); if (statusLine is null || statusLine.Contains("ERROR:", StringComparison.Ordinal)) return false;
+                        if (statusLine.StartsWith("CLIENT_LIST", StringComparison.Ordinal) && statusLine.Split('\t', ',').Contains(cn, StringComparer.Ordinal)) present = true;
+                        if (statusLine == "END") { complete = true; break; }
+                    }
+                    if (complete && !present) { kicked = true; break; }
+                }
+            }
             writer.WriteLine("quit");
             return kicked;
         }
@@ -307,41 +267,5 @@ internal static class OpenVpnManagement
             if (line.Contains(prefix, StringComparison.Ordinal)) return true;
         }
         return false;
-    }
-}
-
-internal static class Health
-{
-    internal static async Task RunAsync(int port, CancellationToken stop = default)
-    {
-        var listener = new TcpListener(IPAddress.Loopback, port);
-        listener.Start();
-        try
-        {
-            while (!stop.IsCancellationRequested)
-            {
-                var client = await listener.AcceptTcpClientAsync(stop);
-                _ = RespondAsync(client, stop);
-            }
-        }
-        finally { listener.Stop(); }
-    }
-
-    private static async Task RespondAsync(TcpClient client, CancellationToken stop)
-    {
-        using (client)
-        {
-            client.ReceiveTimeout = 3000;
-            using var stream = client.GetStream();
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop);
-            timeout.CancelAfter(TimeSpan.FromSeconds(3));
-            var buffer = new byte[5];
-            try
-            {
-                await stream.ReadExactlyAsync(buffer, timeout.Token);
-                if (Encoding.ASCII.GetString(buffer) == "PING\n") await stream.WriteAsync("PONG\n"u8.ToArray(), timeout.Token);
-            }
-            catch (Exception ex) when (ex is IOException or OperationCanceledException) { }
-        }
     }
 }

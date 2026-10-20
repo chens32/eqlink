@@ -1,0 +1,51 @@
+{
+  "repository": "chens32/eqlink",
+  "settings": {
+    "allow_squash_merge": true,
+    "allow_merge_commit": false,
+    "allow_rebase_merge": false,
+    "delete_branch_on_merge": true,
+    "allow_update_branch": true,
+    "security_and_analysis": {
+      "secret_scanning": {"status": "enabled"},
+      "secret_scanning_push_protection": {"status": "enabled"},
+      "dependabot_security_updates": {"status": "enabled"}
+    }
+  },
+  "branchProtection": {
+    "required_status_checks": {
+      "strict": true,
+      "contexts": [
+        "Source hygiene and offline deployment checks",
+        "Core and server (ubuntu-latest)",
+        "Core and server (windows-latest)",
+        "Windows client compilation",
+        "CodeQL CSharp"
+      ]
+    },
+    "enforce_admins": true,
+    "required_pull_request_reviews": {
+      "dismiss_stale_reviews": true,
+      "require_code_owner_reviews": false,
+      "required_approving_review_count": 0
+    },
+    "restrictions": null,
+    "required_linear_history": true,
+    "allow_force_pushes": false,
+    "allow_deletions": false,
+    "required_conversation_resolution": true
+  },
+  "tagRuleset": {
+    "name": "Protect release tags",
+    "target": "tag",
+    "enforcement": "active",
+    "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+    "rules": [{"type": "deletion"}, {"type": "update"}]
+  },
+  "policyNotes": [
+    "Required PR and successful CI apply to administrators as well.",
+    "The repository currently has one maintainer; approval count is zero to avoid requiring the author to approve their own PR. Add an independent reviewer before requiring approvals.",
+    "Private vulnerability reporting, Dependabot alerts, and read-only Actions defaults are enabled through their dedicated APIs.",
+    "Settings are intent until verified by GitHub API readback."
+  ]
+}

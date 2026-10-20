@@ -37,9 +37,9 @@ $expected = [IO.Path]::GetFullPath((Join-Path $repo 'artifacts\package')) + [IO.
 if (-not $stageFull.StartsWith($expected, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe stage path.' }
 if (Test-Path -LiteralPath $stageFull) { Remove-Item -LiteralPath $stageFull -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stageFull | Out-Null
-dotnet publish (Join-Path $repo 'src\EqLink.ClientService\EqLink.ClientService.csproj') -c Release --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true "-p:RestoreSources=$downloads" -p:NuGetAudit=false -o $stage
+dotnet publish -m:1 -p:UseSharedCompilation=false (Join-Path $repo 'src\EqLink.ClientService\EqLink.ClientService.csproj') -c Release --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true "-p:RestoreSources=$downloads" -p:NuGetAudit=false -o $stage
 if ($LASTEXITCODE -ne 0) { throw 'Service publish failed.' }
-dotnet publish (Join-Path $repo 'src\EqLink.ClientGui\EqLink.ClientGui.csproj') -c Release --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true "-p:RestoreSources=$downloads" -p:NuGetAudit=false -o $stage
+dotnet publish -m:1 -p:UseSharedCompilation=false (Join-Path $repo 'src\EqLink.ClientGui\EqLink.ClientGui.csproj') -c Release --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true "-p:RestoreSources=$downloads" -p:NuGetAudit=false -o $stage
 if ($LASTEXITCODE -ne 0) { throw 'GUI publish failed.' }
 Get-ChildItem -LiteralPath $stage -Filter '*.pdb' -File | Remove-Item -Force
 
@@ -57,6 +57,9 @@ try {
         [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
     }
 } finally { $xrayArchive.Dispose() }
+
+python (Join-Path $PSScriptRoot 'prepare-licenses.py') --target $stage --windows --runtime-pack dotnet_runtime_win_x64 --runtime-pack dotnet_desktop_runtime_win_x64
+if ($LASTEXITCODE -ne 0) { throw 'License notice collection failed.' }
 
 dotnet $WixDll build (Join-Path $PSScriptRoot 'EqLink.wxs') -arch x64 -bindpath "Stage=$stage" -out (Join-Path $package 'EqLink.msi')
 if ($LASTEXITCODE -ne 0) { throw 'EqLink MSI build failed.' }

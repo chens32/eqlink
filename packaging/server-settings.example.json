@@ -1,0 +1,18 @@
+{
+  "publicHost": "vpn.example.net",
+  "tcpPort": 30443,
+  "udpPort": 30444,
+  "overlayCidr": "10.88.0.0/24",
+  "enableUdp": true,
+  "enableTcp": true,
+  "hysteriaCertificate": "/etc/eqlink-tls/tls.crt",
+  "hysteriaPrivateKey": "/etc/eqlink-tls/tls.key",
+  "hysteriaServerName": "vpn.example.net",
+  "realityTarget": "www.cloudflare.com:443",
+  "realityServerName": "www.cloudflare.com",
+  "realityPrivateKey": "REPLACE_WITH_XRAY_PRIVATE_KEY",
+  "realityPublicKey": "REPLACE_WITH_XRAY_PUBLIC_KEY",
+  "realityShortId": "0123456789abcdef",
+  "xhttpPath": "/eqlink",
+  "reservedAddresses": []
+}

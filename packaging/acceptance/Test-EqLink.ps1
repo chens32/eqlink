@@ -2,6 +2,8 @@ param(
     [ValidateSet('Baseline','Recovery','StableTcp','RouteConflict','ServiceCrash','All')][string]$Scenario='Baseline',
     [ValidateRange(1,20)][int]$Repeat=5,
     [string]$ServerIp,
+    [string]$PeerIp,
+    [int]$PeerPort=36555,
     [int]$HealthPort=1195,
     [int]$OpenVpnPort=1194,
     [int]$ConflictInterfaceIndex=0,
@@ -14,7 +16,7 @@ $output=[IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $checks=[Collections.Generic.List[object]]::new()
 $suspended=@{}; $ownRoute=$null; $captureStarted=$false; $filters=[Collections.Generic.List[string]]::new()
-$report=[ordered]@{schemaVersion=1;version='0.2.0';startedAt=(Get-Date).ToUniversalTime().ToString('o');scenario=$Scenario;checks=@();timeline=@();evidence=@();cleanup=@{}}
+$report=[ordered]@{schemaVersion=1;version='1.0.0';startedAt=(Get-Date).ToUniversalTime().ToString('o');scenario=$Scenario;checks=@();timeline=@();evidence=@();cleanup=@{}}
 $timeline=[Collections.Generic.List[object]]::new()
 $original=$null
 function Save {
@@ -38,13 +40,26 @@ function Ping-Ip([string]$Ip,[int]$TimeoutMs=1000) {
     try {return $ping.Send($Ip,$TimeoutMs).Status -eq [Net.NetworkInformation.IPStatus]::Success}
     catch {return $false} finally {$ping.Dispose()}
 }
+function Peer-Payload {
+    if(-not $PeerIp){return (Control @{command='health-probe';probePath='INNER'}).probe.success -eq $true}
+    $tcp=[Net.Sockets.TcpClient]::new();$udp=[Net.Sockets.UdpClient]::new()
+    try {
+        $bytes=[byte[]]::new(64);$rng=[Security.Cryptography.RandomNumberGenerator]::Create();try{$rng.GetBytes($bytes)}finally{$rng.Dispose()}
+        if(-not $tcp.ConnectAsync($PeerIp,$PeerPort).Wait(2500)){return $false}
+        $tcp.ReceiveTimeout=2500;$tcp.SendTimeout=2500;$stream=$tcp.GetStream();$stream.Write($bytes,0,$bytes.Length)
+        $answer=[byte[]]::new(64);$read=0;while($read -lt 64){$n=$stream.Read($answer,$read,64-$read);if($n -eq 0){return $false};$read+=$n}
+        if([Convert]::ToBase64String($answer) -ne [Convert]::ToBase64String($bytes)){return $false}
+        $udp.Client.ReceiveTimeout=2500;$udp.Connect($PeerIp,$PeerPort);$udp.Send($bytes,$bytes.Length)|Out-Null;$remote=[Net.IPEndPoint]::new([Net.IPAddress]::Any,0);$answer=$udp.Receive([ref]$remote)
+        return $remote.Address.ToString() -eq $PeerIp -and [Convert]::ToBase64String($answer) -eq [Convert]::ToBase64String($bytes)
+    }catch{return $false}finally{$tcp.Dispose();$udp.Dispose()}
+}
 function Wait-Network([int]$Path,[int]$Seconds=60,[string]$Code='') {
     $watch=[Diagnostics.Stopwatch]::StartNew();$trace=[Collections.Generic.List[object]]::new();$ok=$false
     do {
-        $s=(Control @{command='status'}).status;$ping=Ping-Ip $ServerIp
-        $row=@{at=(Get-Date).ToUniversalTime().ToString('o');seconds=[math]::Round($watch.Elapsed.TotalSeconds,2);connected=$s.connected;path=$s.path;ping=$ping;phase=$s.phase;code=$s.errorCode;allowing=$s.protection.allowing}
+        $s=(Control @{command='status'}).status;$ping=Ping-Ip $ServerIp;$payload=$false;if($s.connected){$payload=Peer-Payload}
+        $row=@{at=(Get-Date).ToUniversalTime().ToString('o');seconds=[math]::Round($watch.Elapsed.TotalSeconds,2);connected=$s.connected;path=$s.path;ping=$ping;payload=$payload;phase=$s.phase;code=$s.errorCode;allowing=$s.protection.allowing}
         $trace.Add($row);$timeline.Add($row)
-        $ok=if($Path -eq 0){-not $s.connected -and -not $ping -and -not $s.protection.allowing}else{$s.connected -and [int]$s.path -eq $Path -and $ping -and $s.protection.installed -and $s.protection.allowing}
+        $ok=if($Path -eq 0){-not $s.connected -and -not $ping -and -not $s.protection.allowing}else{$s.connected -and [int]$s.path -eq $Path -and $payload -and $s.protection.installed -and $s.protection.allowing}
         if($Code -and $s.errorCode -ne $Code){$ok=$false}
         if($ok){break};Start-Sleep -Milliseconds 400
     }while($watch.Elapsed.TotalSeconds -lt $Seconds)
@@ -66,17 +81,8 @@ function Owned-Sidecar([string]$Protocol) {
     return Get-Process -Id $candidates[0].ProcessId
 }
 function Test-Outer([string]$Protocol) {
-    $port=if($Protocol -eq 'UDP'){18081}else{18082};$client=[Net.Sockets.TcpClient]::new()
-    try {
-        if(-not $client.ConnectAsync('127.0.0.1',$port).Wait(1000)){return $false}
-        $client.ReceiveTimeout=1200;$client.SendTimeout=1200;$stream=$client.GetStream()
-        $data=[Text.Encoding]::ASCII.GetBytes("CONNECT 127.0.0.1:$HealthPort HTTP/1.1`r`nHost: 127.0.0.1:$HealthPort`r`n`r`n");$stream.Write($data,0,$data.Length)
-        $header='';while(-not $header.EndsWith("`r`n`r`n") -and $header.Length -lt 8192){$b=$stream.ReadByte();if($b -lt 0){return $false};$header+=[char]$b}
-        if($header -notmatch '^HTTP/1\.[01] 200 '){return $false}
-        $data=[Text.Encoding]::ASCII.GetBytes("PING`n");$stream.Write($data,0,$data.Length)
-        $answer=[byte[]]::new(5);$read=0;while($read -lt 5){$n=$stream.Read($answer,$read,5-$read);if($n -eq 0){return $false};$read+=$n}
-        return [Text.Encoding]::ASCII.GetString($answer) -eq "PONG`n"
-    }catch{return $false}finally{$client.Dispose()}
+    try { $response=Control @{command='health-probe';probePath=$Protocol}; return $response.probe.success -eq $true }
+    catch { return $false }
 }
 function Suspend-Outer([string]$Protocol) {
     if(-not (Test-Outer $Protocol)){throw 'Fault invalid: selected path was not healthy before injection'}

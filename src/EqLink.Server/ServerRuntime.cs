@@ -47,6 +47,7 @@ internal sealed class ServerStateLock : IDisposable
             try
             {
                 _file = new FileStream(Path.Combine(files.Root, ".state.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                try { files.RecoverPending(); } catch { _file.Dispose(); throw; }
                 break;
             }
             catch (IOException) when (DateTimeOffset.UtcNow < until) { Thread.Sleep(100); }

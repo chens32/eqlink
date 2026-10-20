@@ -5,6 +5,10 @@ using System.Text.Json;
 using EqLink.Core;
 using EqLink.ClientService;
 
+if (args is ["--hosts-file", var hostsOutput]) { Environment.ExitCode = await HostsFileTests.RunAsync(hostsOutput); return; }
+if (args.FirstOrDefault() == "--egress-udp") { Environment.ExitCode = await PhysicalEgressUdpTests.RunAsync(args); return; }
+if (args.FirstOrDefault() == "--outer-udp-drop") { Environment.ExitCode = await OuterUdpDrop.RunAsync(args); return; }
+
 if (args.FirstOrDefault() == "--job-sleep") { await Task.Delay(Timeout.Infinite); return; }
 if (args.FirstOrDefault() == "--job-holder")
 {
@@ -43,6 +47,11 @@ try
     guard.Remove();
     var filter=typeof(WindowsNetworkProtection).GetNestedType("Filter",System.Reflection.BindingFlags.NonPublic)!;
     if(Marshal.SizeOf(filter)!=200) throw new Exception("FWPM_FILTER0 ABI mismatch");
+    guard.EnsureBlocked(prefix, "");
+    report["pendingEnrollment"] = guard.Inspect();
+    var pending = JsonSerializer.SerializeToElement(guard.Inspect());
+    if(pending.GetProperty("filterCount").GetInt32()!=4) throw new Exception("Unassigned network needs four denial filters without a guessed self address");
+    try {guard.Allow(1);throw new Exception("Unassigned identity allowed traffic");} catch(InvalidOperationException) { }
     guard.EnsureBlocked(prefix,localIp);
     report["baseline"]=guard.Inspect();
     if(!guard.Installed || guard.Allowing) throw new Exception("WFP baseline was not installed");

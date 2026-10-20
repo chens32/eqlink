@@ -14,6 +14,10 @@ public sealed record ServerSettings
     public int OpenVpnPort { get; init; } = 1194;
     public int HealthPort { get; init; } = 1195;
     public int ManagementPort { get; init; } = 7505;
+    public int AuthPort { get; init; } = 1196;
+    public int XrayApiPort { get; init; } = 7506;
+    public int HysteriaStatsPort { get; init; } = 9999;
+    public string[] ReservedAddresses { get; init; } = [];
     public string OverlayCidr { get; init; } = "10.88.0.0/24";
     public bool EnableUdp { get; init; } = true;
     public bool EnableTcp { get; init; } = true;
@@ -47,10 +51,13 @@ public sealed record ServerSettings
             Uri.CheckHostName(PublicHost) != UriHostNameType.Dns &&
             (!IPAddress.TryParse(PublicHost, out var publicIp) || publicIp.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork))
             throw new ArgumentException("Public host is required.");
-        foreach (var port in new[] { UdpPort, TcpPort, OpenVpnPort, HealthPort, ManagementPort })
+        foreach (var port in new[] { UdpPort, TcpPort, OpenVpnPort, HealthPort, ManagementPort, AuthPort, XrayApiPort, HysteriaStatsPort })
             if (port is < 1 or > 65535) throw new ArgumentException("Port outside 1..65535.");
         if (OpenVpnPort == HealthPort || OpenVpnPort == ManagementPort || HealthPort == ManagementPort)
             throw new ArgumentException("Loopback service ports must differ.");
+        var internalPorts = new[] { OpenVpnPort, HealthPort, ManagementPort, AuthPort, XrayApiPort, HysteriaStatsPort };
+        if (internalPorts.Distinct().Count() != internalPorts.Length || EnableTcp && internalPorts.Contains(TcpPort))
+            throw new ArgumentException("Service ports must not conflict.");
         if (EnableTcp && (TcpPort == OpenVpnPort || TcpPort == HealthPort || TcpPort == ManagementPort))
             throw new ArgumentException("Public TCP port conflicts with a loopback TCP port.");
         if (!EnableUdp && !EnableTcp) throw new ArgumentException("Enable at least one outer path.");
@@ -66,6 +73,7 @@ public sealed record ServerSettings
             !Regex.IsMatch(XhttpPath, "^/[a-zA-Z0-9/_-]{1,80}$")))
             throw new ArgumentException("TLS/REALITY/XHTTP settings are incomplete or invalid.");
         Overlay();
+        foreach (var reserved in ReservedAddresses) AddressAllocation.Validate(OverlayCidr, reserved);
     }
 }
 
@@ -78,12 +86,21 @@ public sealed record DeviceRecord
     public required Guid VlessId { get; init; }
     public required string CertificatePath { get; init; }
     public required bool Active { get; set; }
+    public string PublicKeyFingerprint { get; init; } = "";
+    public string EnrollmentGrantId { get; init; } = "";
+    public string TlsCryptV2Key { get; init; } = "";
+    public bool AddressAssigned { get; init; } = true;
+    public AddressMode AddressMode { get; init; } = AddressMode.Auto;
 }
 
 public sealed record ServerState
 {
+    public int SchemaVersion { get; init; } = 1;
+    public string NetworkId { get; init; } = "";
+    public string HysteriaApiSecret { get; init; } = "";
     public required ServerSettings Settings { get; init; }
     public List<DeviceRecord> Devices { get; init; } = [];
+    public List<EnrollmentGrant> Grants { get; init; } = [];
 }
 
 public sealed record DeviceProfile
@@ -103,6 +120,7 @@ public sealed record DeviceProfile
     public required bool EnableTcp { get; init; }
     public string HysteriaServerName { get; init; } = "";
     public string HysteriaCertificateSha256 { get; init; } = "";
+    public string HysteriaCaPem { get; init; } = "";
     public string HysteriaAuth { get; init; } = "";
     public Guid VlessId { get; init; }
     public string RealityServerName { get; init; } = "";
@@ -113,6 +131,7 @@ public sealed record DeviceProfile
     public required string CertificatePem { get; init; }
     public required string PrivateKeyPem { get; init; }
     public required string TlsCryptV2Key { get; init; }
+    public bool AuthenticatedHealth { get; init; }
 
     public void Validate()
     {
@@ -149,6 +168,7 @@ public sealed record DeviceProfile
         if (OpenVpnPort == HealthPort) throw new ArgumentException("Loopback ports must differ.");
         if (EnableUdp && (string.IsNullOrWhiteSpace(HysteriaServerName) || string.IsNullOrWhiteSpace(HysteriaCertificateSha256) || string.IsNullOrWhiteSpace(HysteriaAuth)))
             throw new ArgumentException("Hysteria device settings are incomplete.");
+        HysteriaTrust.Validate(HysteriaCaPem);
         if (EnableTcp && (VlessId == Guid.Empty || string.IsNullOrWhiteSpace(RealityServerName) || string.IsNullOrWhiteSpace(RealityPublicKey) ||
             !Regex.IsMatch(RealityShortId, "^(?:[0-9a-fA-F]{2}){1,8}$") ||
             !Regex.IsMatch(XhttpPath, "^/[a-zA-Z0-9/_-]{1,80}$")))

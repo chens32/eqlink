@@ -1,6 +1,6 @@
-# EqLink 0.2.0 验收工具
+# EqLink 0.3.0 验收工具
 
-`result.json` 的 `checks[]` 使用 `passed / failed / skipped / unavailable`。`unavailable` 表示条件、工具或有效故障注入不足，不计为通过。恢复时间从实际注入开始，到正确路径、有效 WFP 放行、正确路由且服务端虚拟 IP ping 成功为止。默认每种关键恢复场景连续 5 次；30 秒是优化目标，60 秒是硬门槛。
+`result.json` 的 `checks[]` 使用 `passed / failed / skipped / unavailable`。`unavailable` 表示条件、工具或有效故障注入不足，不计为通过。恢复时间从有效注入开始，到正确路径、有效 WFP 放行及随机负载 TCP/UDP 互访成功为止（用 -PeerIp 指定运行 echo 工具的另一台）。未指定 PeerIp 时仅验证内层认证健康，不代表双客户端恢复通过。ICMP 单独记录。默认每种关键恢复场景连续 5 次；30 秒是优化目标，60 秒是硬门槛。
 
 ## 本机基本测试和故障测试
 
@@ -38,7 +38,7 @@ python .\analyze-capture.py C:\EqLinkEvidence\recovery\nics.txt `
 
 ## 第二台 Windows 客户端：固定地址和双向 TCP/UDP
 
-为 A、B 分别创建设备并使用独立 `.eqlink` 导入包，记录各自固定虚拟 IP。**不要复制同一设备证书给两台机器**。在两台设备上各启动只绑定自身虚拟地址的限时 echo 服务，辅助脚本会建立范围限于该 TAP、虚拟 IP 和虚拟网段的临时入站防火墙规则：
+A、B 使用完全相同的 v2 通用 `.eqlink` 包，记录各自登记后的独立设备身份与服务器确认的虚拟 IP。不要复制机器 DPAPI 身份或私钥。在两台设备上各启动只绑定自身虚拟地址的限时 echo 服务，辅助脚本会建立范围限于该 TAP、虚拟 IP 和虚拟网段的临时入站防火墙规则：
 
 ```powershell
 # A（另开终端保留服务运行）
@@ -56,7 +56,7 @@ python .\analyze-capture.py C:\EqLinkEvidence\recovery\nics.txt `
 
 每次检查包含 ICMP、随机负载 TCP、随机负载 UDP。TCP 是固定 64 字节帧；UDP 验证完整 echo 内容和应答来源。关闭/超时后只清理脚本自有入站规则。Linux 同版本二进制可在服务器虚拟 IP 绑定运行，不能用服务器 `.2` 管理网关代替第二台 Windows 客户端。
 
-测试重连和重启后地址不变，再由管理员吊销 A：A 旧会话应断开且无法重新登录，B 仍能访问服务端；记录外层重载造成的任何 B 中断。两台间主动连接需双方都运行 echo 服务和入站允许规则。未具备第二台 Windows 时，以上结果保持 `skipped`。
+测试重连和重启后地址不变，再由管理员吊销 A：A 旧会话应断开且无法重新登录，B 仍能访问服务端；核对 B 未受影响且服务进程未重启。两台间主动连接需双方都运行 echo 服务和入站允许规则。未具备第二台 Windows 时，以上结果保持 `skipped`。
 
 Linux 解压 ZIP 后先恢复执行权限，例如 `chmod +x linux-arm64/EqLink.PeerProbe`，再在服务器执行 `./linux-arm64/EqLink.PeerProbe serve --bind 172.21.10.1 --seconds 300`。绑定地址必须已配置在该机器上；不需要创建公网 Service 或 NAT 规则。
 
@@ -64,7 +64,7 @@ Linux 解压 ZIP 后先恢复执行权限，例如 `chmod +x linux-arm64/EqLink.
 
 以下项目不在正常使用的本机自动执行；逐项执行并附同格式结果及证据，不能用本机编译或 Ready 状态替代：
 
-1. **WFP 启动与生命周期**：在可丢弃 Windows VM 安装 0.1.2 并放入独立 OpenVPN 哨兵配置，记录 SHA-256；升级 0.2.0、断开、服务停止/强制退出、重启、卸载，各阶段抓包虚拟网段。重启至服务启动前应仍阻断；正常卸载后 EqLink Provider 消失，其他 VPN 文件哈希不变。故意使清理返回失败，验证卸载中止且恢复程序仍在。
+1. **WFP 启动与生命周期**：在可丢弃 Windows VM 安装 0.1.2 并放入独立 OpenVPN 哨兵配置，记录 SHA-256；升级 0.3.0、断开、服务停止/强制退出、重启、卸载，各阶段抓包虚拟网段。重启至服务启动前应仍阻断；正常卸载后 EqLink Provider 消失，其他 VPN 文件哈希不变。故意使清理返回失败，验证卸载中止且恢复程序仍在。
 2. **防火墙/BFE**：在隔离 VM 的当前网络配置文件启用、关闭时重复上述 WFP 阻断测试；BFE 不可用时 connect 应失败并显示 `PROTECTION_UNAVAILABLE`。恢复 BFE 后验证重新建立保护。不得通过放宽全局防火墙来判为通过。
 3. **NIC**：在有 VM 控制台的环境，对选中 NIC 断开/恢复、DHCP 换 IPv4、删除重建网卡使索引改变而 GUID 保持/改变。原 GUID 恢复应自动重连；GUID 被替换应保持等待，不应自动选择其他接口。抓包核对旧源地址套接字退出。
 4. **DNS**：用测试 DNS 控制首个地址、TTL、超时和 A 记录切换。健康会话不迁移；下一次故障重连使用新的有效地址；解析失败不回到系统 Fake-IP。不要用真实服务地址指向不受控主机。
@@ -82,3 +82,26 @@ Start-Service EqLink
 ```
 
 `--network-protection-remove` 仅移除规则，不修改启用设置，供卸载器使用；服务运行时恢复命令拒绝并行清理。返回 5 表示权限不足，1618 表示服务进程仍在，1603 表示原生清理失败。不要删除其他 Provider、停 BFE 或清空整个系统防火墙。应用主动交给其他显式代理转发的请求不在本地址过滤机制覆盖范围。
+
+
+## 0.3.0 GUI 统计和定向流量
+
+先在 B 启动范围受限的流量服务（临时规则和进程清理写入 session.json）：
+
+```powershell
+.\Start-PeerProbe.ps1 -Mode Traffic -VirtualIp 172.21.10.11 -OverlayCidr 172.21.10.0/24 `
+  -Executable .\win-x64\EqLink.PeerProbe.exe -Port 36556 -Seconds 300
+```
+
+A 使用两个终端分别记录统计和产生流量；Meta 保持运行：
+
+```powershell
+.\Record-Statistics.ps1 -Seconds 120 -Output A-statistics.json
+.\win-x64\EqLink.PeerProbe.exe hold --bind 172.21.10.10 --peer 172.21.10.11 --port 36556 --connections 3 --seconds 24
+.\win-x64\EqLink.PeerProbe.exe transfer --bind 172.21.10.10 --peer 172.21.10.11 --port 36556 --direction upload --bytes 134217728 --seconds 180 --output upload.json
+.\win-x64\EqLink.PeerProbe.exe transfer --bind 172.21.10.10 --peer 172.21.10.11 --port 36556 --direction download --bytes 134217728 --seconds 180 --output download.json
+```
+
+hold 按三段时间产生 3→2→0；关闭其他应用连接后比对 GUI 和统计快照。transfer 使用 SHA-256 核对完整负载，分别检查 A 上行/B 下行和 A 下行/B 上行。速率窗口、报文开销、首尾采样会带来差异，应对同一稳定窗口用字节差核对，不能把有效载荷平均值视作网卡精确值。切换适配器/地址后首个速率样本应为“—”，断开应为零。
+
+两台同时运行普通 Echo 模式时，故障验收加 `-PeerIp 172.21.10.11 -PeerPort 36555`，关键场景各五次。有效故障注入先核对认证健康成功，再确认其失败；失败注入不计为通过。单次和连续 ICMP 丢失均应保持正常业务，真实认证内层连续故障则应重连。实际 TAP/TUN 抓包丢包位置仍需另行分析。

@@ -20,14 +20,20 @@ for name in ("api__v1_openapi.json", "apis__apps__v1_openapi.json"):
         path.write_bytes(urllib.request.urlopen("https://raw.githubusercontent.com/kubernetes/kubernetes/v1.34.1/api/openapi-spec/v3/" + name, timeout=60).read())
 subprocess.run([sys.executable, str(BASE / "test-manifests.py"), "--schema-dir", str(schema_dir)], check=True)
 subprocess.run([sys.executable, str(BASE / "test-upgrade.py")], check=True)
+subprocess.run([sys.executable, str(BASE / "test-migration.py")], check=True)
 required = [
     "ARM64 supervisor, OpenVPN TUN and loopback listeners: passed",
-    "ARM64 runtime inspection, secret whitelist and private backup: passed",
-    "ARM64 add/reload and real HY2/XHTTP-REALITY authentication: passed",
+    "ARM64 diagnostic whitelist and private state backup: passed",
+    "ARM64 common bundle, independent CSR identities, idempotency, leases, concurrency and stable process IDs: passed",
+    "ARM64 independent HY2 and XHTTP/REALITY credentials with TLS client authentication: passed",
+    "ARM64 signed CSR, tls-crypt-v2 and real OpenVPN TLS session over selected outer: passed (interface/route execution suppressed)",
+    "ARM64 enrollment revocation isolates new registration: passed",
     "ARM64 outer target restrictions: passed",
     "ARM64 readiness with one failed outer path: passed",
-    "ARM64 revocation and outer reload: passed",
+    "ARM64 single-device revocation, CRL and unaffected peer: passed",
     "ARM64 graceful shutdown and persistent restart: passed",
+    "ARM64 interrupted commit journal and CCD recovery: passed (interruption fixture)",
+    "ARM64 offline legacy migration, backup and CA/REALITY/network preservation: passed (legacy-state fixture)",
     "ARM64 container smoke passed.",
     "ARM64 device RPC and operation-ID recovery: passed"
 ]
@@ -55,10 +61,10 @@ record = {
     "targetK3sApplied": False,
     "twoSitePublicNetworkTested": False,
     "windowsOpenVpnTunTested": False,
-    "openVpnClientHandshakeTested": False,
+    "openVpnClientHandshakeTested": True,
     "peerInterconnectTested": False,
     "physicalNicNoLeakCaptureAccepted": False,
-    "openVpnActiveSessionRevocationTested": False,
+    "openVpnActiveSessionRevocationTested": True,
     "sixtySecondRecoveryAccepted": False
 }
 (OUT / "VALIDATION.json").write_text(json.dumps(record, indent=2))

@@ -29,6 +29,7 @@ internal sealed partial class EqLinkDaemon
     private bool _vpnConnected;
     private volatile bool _authFailure;
     private volatile bool _udpAuthFailure, _tcpAuthFailure;
+    private volatile OuterFailureInfo? _udpOuterFailure, _tcpOuterFailure;
     private volatile bool _udpStopped, _tcpStopped;
     private ProxySelector? _selector;
     private PhysicalEgress? _physicalEgress;
@@ -37,6 +38,7 @@ internal sealed partial class EqLinkDaemon
     private Task? _pipeLoop;
     private string? _selectorToken;
     private OwnedProcessJob? _processJob;
+    private HostsOverrideManager? _hosts;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public void Start()
@@ -44,31 +46,14 @@ internal sealed partial class EqLinkDaemon
         _processJob = new OwnedProcessJob();
         SecureDirectory();
         DeleteRuntimeConfigs();
-        var profileFile = Path.Combine(_root, "profile.dpapi");
-        if (File.Exists(profileFile))
-        {
-            try
-            {
-                var plaintext = ProtectedData.Unprotect(File.ReadAllBytes(profileFile), "EqLink-profile-v1"u8.ToArray(), DataProtectionScope.LocalMachine);
-                try
-                {
-                    _profile = JsonSerializer.Deserialize<DeviceProfile>(plaintext, Json) ?? throw new InvalidDataException("Empty profile.");
-                    _profile.Validate();
-                    _message = "已导入设备，尚未连接";
-                }
-                finally { CryptographicOperations.ZeroMemory(plaintext); }
-            }
-            catch (Exception ex) when (ex is CryptographicException or JsonException or ArgumentException or InvalidDataException)
-            {
-                _profile = null;
-                _message = "已保存的设备配置无效；请以管理员身份重新导入";
-            }
-        }
+        LoadInstallation();
+        UpdateHostsNetworkAsync().GetAwaiter().GetResult();
         var modeFile = Path.Combine(_root, "mode.txt");
         if (File.Exists(modeFile) && Enum.TryParse<TransportMode>(File.ReadAllText(modeFile), out var mode) && Enum.IsDefined(mode)) _mode = mode;
         ReadEgressConfiguration();
         StartNetworkProtection();
         _pipeLoop = PipeLoopAsync(_stop.Token);
+        _metricsLoop = MetricsLoopAsync(_stop.Token);
     }
 
     private void SecureDirectory()
@@ -87,7 +72,8 @@ internal sealed partial class EqLinkDaemon
     {
         lock (_gate) return new ClientStatus(_profile is not null, _vpnConnected, _profile?.DeviceName ?? "", _profile?.VirtualIp ?? "",
             _mode, _path, _message, _physicalEgress?.InterfaceName ?? _configuredEgressName, _phase, _errorCode,
-            new ProtectionStatus(_protectionEnabled, _guard?.Installed ?? false, _guard?.Allowing ?? false, _profile?.OverlayCidr, _protectionError));
+            new ProtectionStatus(_protectionEnabled, _guard?.Installed ?? false, _guard?.Allowing ?? false, _profile?.OverlayCidr, _protectionError),
+            _vpnConnected ? _metrics : new TrafficSnapshot(0, 0, 0, DateTimeOffset.UtcNow), _installation?.Runtime is null ? "Pending" : "Registered", _address, _profile?.PublicHost, _healthWarning, _hosts?.Status);
     }
 
     private async Task PipeLoopAsync(CancellationToken stop)
@@ -113,7 +99,7 @@ internal sealed partial class EqLinkDaemon
             {
                 var line = await ReadLineLimitedAsync(pipe, 1_000_000, stop);
                 var request = JsonSerializer.Deserialize<IpcRequest>(line, Json) ?? throw new InvalidDataException("请求为空");
-                if (request.Command is "import" or "egress-set" or "protection-set")
+                if (request.Command is "import" or "egress-set" or "protection-set" or "address-set" or "mode" or "hosts-set")
                 {
                     var isAdmin = false;
                     pipe.RunAsClient(() => isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator));
@@ -142,6 +128,15 @@ internal sealed partial class EqLinkDaemon
         {
             case "status": break;
             case "diagnostics": return new IpcResponse(true, null, Status(), Diagnostics: Diagnostics());
+            case "hosts-get":
+                await UpdateHostsNetworkAsync();
+                return new IpcResponse(true, null, Status(), Hosts: _hosts?.Settings ?? HostsOverrideSettings.Empty);
+            case "hosts-set":
+                if (_installation is null || _profile is null) throw new InvalidOperationException("请先导入通用入网包。");
+                await UpdateHostsNetworkAsync();
+                await _hosts!.SaveAsync(request.Hosts ?? throw new ArgumentException("缺少域名覆写设置。"));
+                return new IpcResponse(true, null, Status(), Hosts: _hosts.Settings);
+            case "health-probe": return new IpcResponse(true, null, Status(), Probe: await ProbeHealthAsync(request.ProbePath));
             case "protection-set":
                 await SetProtectionAsync(request.ProtectionEnabled ?? throw new ArgumentException("缺少保护开关"));
                 break;
@@ -166,27 +161,31 @@ internal sealed partial class EqLinkDaemon
                 }
                 finally { _lifecycle.Release(); }
             case "import":
-                if (string.IsNullOrEmpty(request.BundleBase64) || request.Passphrase is null) throw new ArgumentException("缺少导入包或密码");
-                if (_wantConnection) throw new InvalidOperationException("请先断开当前连接");
-                var profile = BundleCrypto.Decrypt(Convert.FromBase64String(request.BundleBase64), request.Passphrase);
-                CheckOverlayCollision(profile);
-                var plain = JsonSerializer.SerializeToUtf8Bytes(profile, Json);
-                byte[] protectedBytes;
-                try { protectedBytes = ProtectedData.Protect(plain, "EqLink-profile-v1"u8.ToArray(), DataProtectionScope.LocalMachine); }
-                finally { CryptographicOperations.ZeroMemory(plain); }
-                SaveImportedProfile(profile, protectedBytes);
-                SetState("Disconnected", null, "设备已导入，虚拟网段保护已配置");
-                if (_mode == TransportMode.UdpOnly && !profile.EnableUdp || _mode == TransportMode.TcpOnly && !profile.EnableTcp)
-                    _mode = TransportMode.Auto;
+                if (string.IsNullOrEmpty(request.BundleBase64)) throw new ArgumentException("请选择通用入网包");
+                if (_wantConnection || _connecting) throw new InvalidOperationException("请先断开连接，再导入通用包。");
+                var bundleBytes = Convert.FromBase64String(request.BundleBase64);
+                var importing = EnrollmentBundle.Parse(bundleBytes);
+                if (_hosts is not null && importing.Network.NetworkId != _installation?.Bundle.Network.NetworkId) await _hosts.DeactivateAsync();
+                ImportUniversal(bundleBytes);
+                await UpdateHostsNetworkAsync();
                 break;
+            case "address-get": return new IpcResponse(true, null, Status(), Address: _address);
+            case "address-set":
+                if (_wantConnection || _connecting) throw new InvalidOperationException("请先断开连接，再保存地址设置。");
+                var preference = request.Address ?? throw new ArgumentException("缺少地址设置");
+                if (_profile is null) throw new InvalidOperationException("请先导入通用入网包");
+                preference.Validate(_profile.OverlayCidr);
+                var addressPath = Path.Combine(_root, "address.json");
+                File.WriteAllText(addressPath + ".tmp", JsonSerializer.Serialize(preference, Json)); File.Move(addressPath + ".tmp", addressPath, true);
+                _address = preference;
+                return new IpcResponse(true, null, Status(), Address: _address);
             case "mode":
                 if (!Enum.TryParse<TransportMode>(request.Mode, true, out var mode) || !Enum.IsDefined(mode)) throw new ArgumentException("无效连接模式");
                 if (_profile is not null && (mode == TransportMode.UdpOnly && !_profile.EnableUdp || mode == TransportMode.TcpOnly && !_profile.EnableTcp))
                     throw new ArgumentException("服务端未启用所选路径");
                 lock (_gate) _mode = mode;
                 File.WriteAllText(Path.Combine(_root, "mode.txt"), mode.ToString());
-                if (mode == TransportMode.UdpOnly && _path == ActivePath.Tcp || mode == TransportMode.TcpOnly && _path == ActivePath.Udp)
-                { BlockOverlay(); SetState("Reconnecting", null, "连接模式已变更，正在重连"); _selector?.CloseActive(); }
+                await ApplyModeAsync();
                 break;
             case "connect":
                 if (_profile is null) throw new InvalidOperationException("请先导入设备配置");
@@ -196,6 +195,8 @@ internal sealed partial class EqLinkDaemon
                 {
                     _wantConnection = true;
                     _authFailure = false;
+                    _udpOuterFailure = null;
+                    _tcpOuterFailure = null;
                     _udpAuthFailure = false;
                     _tcpAuthFailure = false;
                     _udpStopped = false;
@@ -246,20 +247,23 @@ internal sealed partial class EqLinkDaemon
             }
             _physicalEgress = egress;
             _egressSignature = WindowsNetworkEnvironment.EgressSignature(EgressSettingsStore.Load(Path.Combine(_root, "egress.json")));
-            var outerProfile = _physicalEgress?.RuntimeProfile ?? p;
+            p = await PrepareDeviceAsync(p, generation);
+            if (generation != Volatile.Read(ref _generation) || !_wantConnection) return;
+            var outerProfile = (_physicalEgress?.RuntimeProfile ?? p) with { HysteriaAuth = p.HysteriaAuth, VlessId = p.VlessId, HysteriaCaPem = p.HysteriaCaPem, HysteriaCertificateSha256 = p.HysteriaCertificateSha256 };
             _selectorToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             _selector = new ProxySelector(p, () => _mode, (path, msg) =>
             {
                 if (generation == Volatile.Read(ref _generation))
                 {
                     _vpnInitialized = false;
+                    ResetHealth();
                     BlockOverlay();
                     lock (_gate)
                     {
                         _path = path;
                         _vpnConnected = false;
                         _message = path == ActivePath.None && (_udpAuthFailure || _tcpAuthFailure)
-                            ? "外层认证失败；请检查设备是否被吊销或重新导入配置"
+                            ? SelectedOuterFailure()?.Message ?? "外层认证失败；请检查设备是否被吊销或重新导入配置"
                             : path == ActivePath.None && (_udpStopped || _tcpStopped)
                                 ? "外层进程持续退出；请断开后重试并检查安装文件" : msg;
                     }
@@ -271,13 +275,13 @@ internal sealed partial class EqLinkDaemon
                 path => !_rebuildRequested && (path == ActivePath.Udp ? !_udpAuthFailure && !_udpStopped : !_tcpAuthFailure && !_tcpStopped));
             _selector.Start();
             File.WriteAllText(Path.Combine(_root, "openvpn.ovpn"), ConfigRenderer.ClientOpenVpn(p, SelectorPort, _selectorToken));
-            if (p.EnableUdp)
+            if (p.EnableUdp && ModeAllows(ActivePath.Udp))
             {
-                File.WriteAllText(Path.Combine(_root, "hysteria.json"), ConfigRenderer.ClientHysteria(outerProfile, UdpProxyPort));
+                WriteHysteriaConfiguration(outerProfile);
                 _hysteria = StartProcess(Path.Combine(AppContext.BaseDirectory, "bin", "hysteria.exe"), "client", "-c", Path.Combine(_root, "hysteria.json"));
                 _ = MonitorSidecarAsync(ActivePath.Udp, _hysteria, generation);
             }
-            if (p.EnableTcp)
+            if (p.EnableTcp && ModeAllows(ActivePath.Tcp))
             {
                 File.WriteAllText(Path.Combine(_root, "xray.json"), ConfigRenderer.ClientXray(outerProfile, TcpProxyPort));
                 _xray = StartProcess(Path.Combine(AppContext.BaseDirectory, "bin", "xray.exe"), "run", "-c", Path.Combine(_root, "xray.json"));
@@ -297,7 +301,22 @@ internal sealed partial class EqLinkDaemon
                 _connecting = false;
                 lock (_gate) { _vpnConnected = false; _path = ActivePath.None; }
                 await StopProcessesAsync();
-                if (ex is FileNotFoundException)
+                if (ex is ControlApiException rejection)
+                {
+                    _wantConnection = false;
+                    var message = OuterFailureClassifier.MessageForCode(rejection.Code) ?? (rejection.Code switch {
+                        "CONTROL_TRUST_REJECTED" => "登记控制接口的 TLS 证书校验失败。请联系管理员核对入网包中的 CA、服务器证书和本机时间。",
+                        "DEVICE_CERT_EXPIRED" => "本机设备证书尚未生效或已过期。请检查本机时间并联系管理员。",
+                        "ADDRESS_IN_USE" => "申请的静态 IP 已占用或被管理员保留。请断开后修改地址设置。",
+                        "ADDRESS_OUTSIDE_NETWORK" or "ADDRESS_RESERVED" => "申请的 IP 不在设备地址池中。请选择当前网段内的 .10～.254 地址。",
+                        "ADDRESS_SESSION_ACTIVE" => "服务器尚未确认旧设备会话结束，原地址保持保留。请稍后重试。",
+                        "ADDRESS_POOL_EXHAUSTED" => "服务器地址池已用尽，请联系管理员。",
+                        _ => rejection.AuthenticationFailure ? "设备或入网凭证被拒绝，请联系管理员。" : "服务器拒绝了配置申请：" + rejection.Code });
+                    SetState("Error", rejection.Code, message);
+                }
+                else if (ex is InvalidDataException || ex is ArgumentException)
+                { _wantConnection = false; SetState("Error", "CONFIG_INVALID", "连接配置验证失败，请重新导入通用包。"); }
+                else if (ex is FileNotFoundException)
                 { _wantConnection = false; SetState("Error", "COMPONENT_MISSING", "缺少连接组件，请修复 EqLink 安装。"); }
                 else SetState("WaitingForEgress", ex is System.ComponentModel.Win32Exception ? "PROTECTION_OR_NETWORK_UNAVAILABLE" : "EGRESS_OR_DNS_UNAVAILABLE", "连接准备失败，等待恢复: " + ex.Message);
             }
@@ -323,7 +342,7 @@ internal sealed partial class EqLinkDaemon
             var stdout = ReadOpenVpnAsync(current.StandardOutput, generation);
             var stderr = ReadOpenVpnAsync(current.StandardError, generation);
             await current.WaitForExitAsync();
-            if (generation == Volatile.Read(ref _generation)) { _vpnInitialized = false; BlockOverlay(); }
+            if (generation == Volatile.Read(ref _generation)) { _vpnInitialized = false; ResetHealth(); BlockOverlay(); }
             await Task.WhenAll(stdout, stderr);
             current.Dispose();
             if (ReferenceEquals(_openVpn, current)) _openVpn = null;
@@ -365,7 +384,7 @@ internal sealed partial class EqLinkDaemon
             if(opened.Success)
                 _virtualInterfaceId = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n=>n.Name==opened.Groups[1].Value && n.Description.Contains("TAP-Windows",StringComparison.OrdinalIgnoreCase))?.Id;
             if (line.Contains("Initialization Sequence Completed", StringComparison.Ordinal))
-            { _vpnInitialized = true; SetState("Verifying", null, "OpenVPN 已建立，正在验证虚拟路由与网络保护"); SignalNetwork(); }
+            { ResetHealth(); _vpnInitialized = true; SetState("Verifying", null, "OpenVPN 已建立，正在验证虚拟路由与网络保护"); SignalNetwork(); }
             else if (line.Contains("AUTH_FAILED", StringComparison.Ordinal) || line.Contains("VERIFY ERROR", StringComparison.Ordinal))
             { _authFailure = true; BlockOverlay(); SetState("Error", "AUTH_FAILED", "OpenVPN 证书或设备认证失败，请联系管理员"); }
         }
@@ -378,7 +397,8 @@ internal sealed partial class EqLinkDaemon
         var stderr = DrainAsync(process.StandardError, path, generation);
         await process.WaitForExitAsync();
         await Task.WhenAll(stdout, stderr);
-        if (generation != Volatile.Read(ref _generation) || !_wantConnection) return;
+        if (generation != Volatile.Read(ref _generation) || !_wantConnection || !ModeAllows(path) ||
+            !ReferenceEquals(path == ActivePath.Udp ? _hysteria : _xray, process)) return;
         if (_path == path) _selector?.CloseActive();
         if (path == ActivePath.Udp ? _udpAuthFailure : _tcpAuthFailure) return;
         var failures = DateTimeOffset.UtcNow - started > TimeSpan.FromSeconds(30) ? 1 : priorFailures + 1;
@@ -394,9 +414,11 @@ internal sealed partial class EqLinkDaemon
         await _lifecycle.WaitAsync();
         try
         {
-            if (generation != Volatile.Read(ref _generation) || !_wantConnection || _profile is null) return;
+            if (generation != Volatile.Read(ref _generation) || !_wantConnection || _profile is null || !ModeAllows(path) ||
+                !ReferenceEquals(path == ActivePath.Udp ? _hysteria : _xray, process)) return;
             if (path == ActivePath.Udp)
             {
+                _physicalEgress?.ResetUdpPeer();
                 _hysteria = StartProcess(Path.Combine(AppContext.BaseDirectory, "bin", "hysteria.exe"), "client", "-c", Path.Combine(_root, "hysteria.json"));
                 _ = MonitorSidecarAsync(path, _hysteria, generation, failures);
             }
@@ -415,20 +437,37 @@ internal sealed partial class EqLinkDaemon
         finally { _lifecycle.Release(); }
     }
 
+    private OuterFailureInfo? SelectedOuterFailure() => _mode switch
+    {
+        TransportMode.UdpOnly => _udpOuterFailure,
+        TransportMode.TcpOnly => _tcpOuterFailure,
+        _ => _udpOuterFailure ?? _tcpOuterFailure
+    };
+
     private async Task DrainAsync(StreamReader reader, ActivePath path, int generation)
     {
         string? line;
         while ((line = await reader.ReadLineAsync()) is not null)
         {
-            if (generation != Volatile.Read(ref _generation)) continue;
-            if (line.Contains("authentication failed", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("invalid username/password", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("certificate verify failed", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("x509:", StringComparison.OrdinalIgnoreCase))
+            if (generation != Volatile.Read(ref _generation) || !ModeAllows(path)) continue;
+            var failure = OuterFailureClassifier.Classify(line);
+            if (failure is not null)
             {
-                if (path == ActivePath.Udp) _udpAuthFailure = true;
-                else _tcpAuthFailure = true;
-                lock (_gate) _message = "外层认证或证书失败；请联系管理员检查设备凭据";
+                lock (_gate)
+                {
+                    if (generation != Volatile.Read(ref _generation) || !ModeAllows(path)) continue;
+                    if (path == ActivePath.Udp)
+                    {
+                        if (_udpOuterFailure is null || _udpOuterFailure.Code == "OUTER_AUTH_REJECTED") _udpOuterFailure = failure;
+                        _udpAuthFailure = true;
+                    }
+                    else
+                    {
+                        if (_tcpOuterFailure is null || _tcpOuterFailure.Code == "OUTER_AUTH_REJECTED") _tcpOuterFailure = failure;
+                        _tcpAuthFailure = true;
+                    }
+                    _message = SelectedOuterFailure()?.Message ?? failure.Message;
+                }
                 if (_path == path) _selector?.CloseActive();
                 SignalNetwork();
             }
@@ -471,6 +510,7 @@ internal sealed partial class EqLinkDaemon
     private async Task StopProcessesAsync()
     {
         _vpnInitialized = false;
+        ResetHealth(); _healthWarning = null;
         _virtualInterfaceId = null;
         BlockOverlay();
         _ownedOverlayRoute = false;
@@ -485,12 +525,13 @@ internal sealed partial class EqLinkDaemon
         }
         if (_selector is not null) { await _selector.DisposeAsync(); _selector = null; }
         if (_physicalEgress is not null) { await _physicalEgress.DisposeAsync(); _physicalEgress = null; }
+        _openVpn = null; _hysteria = null; _xray = null;
         DeleteRuntimeConfigs();
     }
 
     private void DeleteRuntimeConfigs()
     {
-        foreach (var name in new[] { "openvpn.ovpn", "hysteria.json", "xray.json" })
+        foreach (var name in new[] { "openvpn.ovpn", "hysteria.json", "xray.json", "hysteria-ca.pem", "hysteria-ca.pem.tmp" })
             File.Delete(Path.Combine(_root, name));
     }
 
@@ -503,6 +544,15 @@ internal sealed partial class EqLinkDaemon
         _guard?.Dispose();
         _processJob?.Dispose();
         if (_pipeLoop is not null) await _pipeLoop;
+        if (_metricsLoop is not null) await _metricsLoop;
+        if (_hosts is not null) await _hosts.DisposeAsync();
+    }
+
+    private async Task UpdateHostsNetworkAsync(DeviceProfile? confirmed = null)
+    {
+        if (_installation is null || (confirmed ?? _profile) is not { } profile) return;
+        _hosts ??= new HostsOverrideManager(_root);
+        await _hosts.SetNetworkAsync(_installation.Bundle.Network.NetworkId, profile.OverlayCidr);
     }
 
     private static async Task<byte[]> ReadLineLimitedAsync(Stream stream, int limit, CancellationToken stop)
