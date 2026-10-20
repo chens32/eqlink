@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate rendered resources against official Kubernetes OpenAPI and port-isolation constraints."""
 import argparse
+import copy
 import json
 import pathlib
 import types
@@ -19,11 +20,25 @@ options = types.SimpleNamespace(node="arm-test-1", namespace="eqlink-test", publ
 validate(options)
 configuration = settings(options, "test-private-key", "test-public-key", "0123456789abcdef")
 items = resources(options, configuration, b"test certificate bytes", b"test private bytes")
-for item in items:
-    group = "apps" if item["kind"] == "Deployment" else "core"
-    model = "io.k8s.api." + group + ".v1." + item["kind"]
-    root = {"$ref": "#/components/schemas/" + model, "components": {"schemas": schemas}}
-    jsonschema.Draft4Validator(root).validate(item)
+def check_schema(documents):
+    for item in documents:
+        group = "apps" if item["kind"] == "Deployment" else "core"
+        model = "io.k8s.api." + group + ".v1." + item["kind"]
+        root = {"$ref": "#/components/schemas/" + model, "components": {"schemas": schemas}}
+        jsonschema.Draft4Validator(root).validate(item)
+
+check_schema(items)
+for arch in ("amd64", "arm64"):
+    explicit = copy.copy(options)
+    explicit.arch = arch
+    explicit.image = "docker.io/eqlink/server:1.0.0-" + arch
+    validate(explicit)
+    explicit_items = resources(explicit, configuration, b"test certificate bytes", b"test private bytes")
+    check_schema(explicit_items)
+    explicit_pod = next(i for i in explicit_items if i["kind"] == "Deployment")["spec"]["template"]["spec"]
+    assert explicit_pod["nodeSelector"]["kubernetes.io/arch"] == arch
+    assert explicit_pod["containers"][0]["image"] == explicit.image
+    assert explicit_pod["containers"][0]["imagePullPolicy"] == "Never"
 service = next(i for i in items if i["kind"] == "Service")
 assert {(p["protocol"], p["nodePort"], p["targetPort"]) for p in service["spec"]["ports"]} == {("TCP", 31443, 31443), ("UDP", 31444, 31444)}
 assert not {1194, 1195, 7505} & {p["port"] for p in service["spec"]["ports"]}
@@ -43,3 +58,4 @@ assert not any("hostPath" in volume for volume in pod["volumes"])
 assert all(i.get("type") != "LoadBalancer" for i in items)
 print("Kubernetes official OpenAPI schema: 6 resources passed")
 print("Custom high-port mapping and backend isolation: passed")
+print("Explicit amd64/arm64 image and node architecture: passed")

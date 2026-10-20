@@ -51,6 +51,7 @@ jobs:
           python packaging/k3s/test-migration.py
           python packaging/k3s/test_bundle_trust.py
           python tools/check-release.py
+          python tools/test-release-assets.py
       - name: Validate generated Kubernetes resources
         shell: bash
         run: |

@@ -28,6 +28,8 @@ python packaging/k3s/test-upgrade.py
 - k3s：当前 `packaging/build-k3s.ps1` 从 Windows 调用 WSL。原生 Linux 迁移需要适配入口；底层脚本使用 debootstrap、chroot、unshare，amd64 跨架构测试另需 QEMU/binfmt。
 - 依赖清单为 `packaging/third_party.lock.json`。构建产物、依赖缓存和验收材料写入被忽略的 `artifacts/`。
 
+正式 release 使用 `packaging/package-release.py` 组装，在 `artifacts/release/X.Y.Z/upload/` 只放三个附件：`eqlink-client-X.Y.Z.exe`、两份 Linux 服务端包。`tools/publish-release.py` 默认输出同步计划，`--apply` 验证保留文件后清理其他附件。MSI、源码归档、工具、校验及验收材料保留在父目录，详见[发布流程](releasing.md)。Kubernetes 可从标准服务端包构建镜像，见[安装说明](kubernetes-installation.zh-CN.md)。
+
 将项目迁移到其他目录后重新生成 `bin/obj`，不要复用包含旧绝对路径的构建缓存。宿主机服务安装、真实 k3s apply、Windows 安装与故障注入不属于常规源码 CI。
 
 ## 源码与证据

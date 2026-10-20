@@ -4,6 +4,7 @@ import pathlib
 import hashlib
 import re
 import xml.etree.ElementTree as ET
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 props = ET.parse(ROOT / 'Directory.Build.props').getroot()
@@ -19,7 +20,11 @@ for name in ('README.md', 'README.zh-CN.md', 'LICENSE', 'SECURITY.md', 'CONTRIBU
     assert (ROOT / name).is_file(), 'Missing public release file: ' + name
 assert 'GNU GENERAL PUBLIC LICENSE' in (ROOT / 'LICENSE').read_text(encoding='utf-8-sig')
 assert hashlib.sha256((ROOT / 'packaging/licenses/WiX-5.0.2-LICENSE.txt').read_bytes()).hexdigest() == 'dfdf2048787635215a6baf3b9d461dee89a2904d246787258a44f072a98d4786'
-assert 'draft' in (ROOT / f'docs/release-{version}.md').read_text(encoding='utf-8').lower()
+sys.path.insert(0, str(ROOT / 'packaging'))
+from release_assets import asset_names
+assert asset_names(version) == (f'eqlink-client-{version}.exe', f'eqlink-server-arm64-{version}.tar.gz', f'eqlink-server-amd64-{version}.tar.gz')
+for name in ('docs/releasing.md', 'docs/kubernetes-installation.md', 'docs/kubernetes-installation.zh-CN.md', 'packaging/kubernetes/Dockerfile', 'tools/publish-release.py'):
+    assert (ROOT / name).is_file(), 'Missing release policy or Kubernetes entry point: ' + name
 for name in ('README.md', 'README.zh-CN.md'):
     content = (ROOT / name).read_text(encoding='utf-8')
     for target in re.findall(r'\]\(([^)]+)\)', content):

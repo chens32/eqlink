@@ -1,13 +1,15 @@
 # 更新记录
 
-## 1.0.0 — 首版发布草稿
+## 1.0.0 — 首版发布
 
 - 将 Windows、Linux 服务端和验收工具统一为 1.0.0，保留 v2 协议兼容；更新 MSI ProductCode、保留 UpgradeCode。
 - 汇总通用入网包、独立身份、自动/静态地址、健康检查修复、物理出口容错、GUI 统计和独立域名覆写。
 - 修复控制响应大小限制过晚的问题，对声明长度和未知长度流均限制读取；拒绝未定义的地址模式。
 - 补充英文默认 README、中文 README、GPL-3.0-only、第三方许可清单、对应源码分发与签名门槛。
 - 扩展 gitignore 与源码边界检查；恢复 PR/main CI，增加 CodeQL、Dependabot、CODEOWNERS、PR/Issue 模板及 public 仓库保护设置。
-- 发行仍为 draft；历史测试不替代新版本完整双机、安装生命周期及原生 k3s 恢复验收。
+- 已正式发布；历史测试不替代新版本完整双机、安装生命周期及原生 k3s 恢复验收。
+- Release 固定为 `eqlink-client-X.Y.Z.exe` 与 amd64/arm64 服务端三个附件；文档、工具、MSI 和证据保留在源码或本地构建目录。
+- 增加从标准服务端包构建 Kubernetes 镜像的 Dockerfile、中英文安装流程，以及部署/升级的架构和镜像选择参数。
 
 ## 未发布
 
