@@ -3,6 +3,7 @@
 import argparse
 import gzip
 import hashlib
+import io
 import json
 import pathlib
 import shutil
@@ -58,7 +59,8 @@ def main():
             raise SystemExit('Required release input missing: ' + source)
         shutil.copy2(ROOT / source, OUT / name)
     head = git('rev-parse', 'HEAD').decode().strip()
-    archive = git('archive', '--format=tar', f'--prefix=eqlink-{VERSION}/', head)
+    # git archive otherwise converts text=auto entries using Windows core.eol.
+    archive = git('-c', 'core.autocrlf=false', '-c', 'core.eol=lf', 'archive', '--format=tar', f'--prefix=eqlink-{VERSION}/', head)
     with (OUT / f'eqlink-source-{VERSION}.tar.gz').open('wb') as stream:
         with gzip.GzipFile(fileobj=stream, mode='wb', mtime=0) as compressed:
             compressed.write(archive)
@@ -72,6 +74,11 @@ def main():
         shutil.copy2(ROOT / 'artifacts/k3s/VALIDATION.json', OUT / 'K3S-VALIDATION.json')
     tracked = [p.decode() for p in git('ls-files', '-z').split(b'\0') if p]
     source_hashes = {name: hashlib.sha256(git('show', head + ':' + name)).hexdigest() for name in tracked}
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+        archive_hashes = {member.name.removeprefix(f'eqlink-{VERSION}/'): hashlib.sha256(source.extractfile(member).read()).hexdigest()
+                          for member in source.getmembers() if member.isfile()}
+    if archive_hashes != source_hashes:
+        raise SystemExit('Source archive differs from committed blobs; refusing to publish a mismatched manifest')
     artifacts = {p.name: {'bytes': p.stat().st_size, 'sha256': digest(p)} for p in sorted(OUT.iterdir()) if p.is_file() and p.name not in ('release-manifest.json', 'SHA256SUMS')}
     manifest = {'schemaVersion': 1, 'version': VERSION, 'channel': 'draft', 'createdUtc': datetime.now(timezone.utc).isoformat(),
                 'source': {'gitHead': head, 'gitTree': git('rev-parse', 'HEAD^{tree}').decode().strip(), 'workingTreeDirty': False, 'sha256': source_hashes},
