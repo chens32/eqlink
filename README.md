@@ -2,66 +2,188 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A private IPv4 network for Windows devices, with a Linux server and two outer transports.
+EqLink provides a virtual IPv4 network with outer transports designed to resist blocking. The inner network uses **OpenVPN TCP**. In automatic mode, the outer transport prefers **Hysteria 2 / UDP** and falls back to **VLESS + XHTTP + REALITY / TCP** when the UDP connection is unavailable.
 
-EqLink gives each enrolled machine its own virtual IP. Applications communicate with the server and other devices using ordinary ICMP, TCP and UDP. OpenVPN TCP runs inside **Hysteria 2 / UDP**, with **VLESS + XHTTP + REALITY / TCP** as the fallback.
-
-**[v1.0.0 is available](https://github.com/chens32/eqlink/releases/tag/v1.0.0).** Builds, CI and historical real-network tests cover different scopes. Full acceptance remains incomplete; see [release notes](docs/release-1.0.0.md) and [validation status](docs/validation-status.md).
+Full acceptance remains incomplete. See [validation status](docs/validation-status.md) for the scope of builds and real-network tests for each version.
 
 ## Features
 
-- One reusable, passwordless `.eqlink` v2 enrollment bundle for multiple machines.
-- Locally generated device keys, separate certificates and outer credentials, per-device revocation.
-- Server-assigned persistent IPv4 addresses, or server-validated static address requests.
-- Automatic, UDP-only and TCP-only modes; one OpenVPN session at a time.
-- Specified physical egress and dedicated DNS for coexistence with other TUN applications, including Meta.
-- Windows Filtering Platform protection for the configured virtual IPv4 subnet.
-- Windows GUI with connection state, local established TCP count, virtual-interface upload/download rates, diagnostics and per-network domain overrides.
-- Debian/Ubuntu amd64/arm64 server packages, with Kubernetes/k3s image-building, deployment and upgrade tools.
+- Import a universal `.eqlink` enrollment bundle to configure a connection, then enroll the device online on its first connection.
+- Generate independent keys locally; the server issues separate certificates and outer credentials, with per-device revocation.
+- Obtain a persistent, server-assigned address or request a static address for the server to validate.
+- Select a physical egress interface and dedicated DNS to coexist with other TUN applications, including Meta.
 
-## How it works
+```mermaid
+flowchart TB
+    APP["Windows application<br/>ICMP / TCP / UDP"]
+    TAP["EqLink virtual adapter<br/>WFP protection for the virtual subnet"]
+    OVC["OpenVPN TCP<br/>Encrypt original IPv4 packets"]
+    SELECT["Local path selector<br/>127.0.0.1:18080"]
 
-```text
-Application -> EqLink virtual adapter -> OpenVPN TCP -> local selector
-                                                    |-- HY2 / UDP ------------|
-                                                    |-- XHTTP / REALITY / TCP |-> Linux OpenVPN -> peers
-Enrollment and configuration -> the same outer paths -> loopback TLS control API
-Authenticated inner health -> virtual adapter -> server virtual IP
+    APP --> TAP --> OVC --> SELECT
+
+    SELECT -->|"Prefer UDP"| HC["Hysteria 2<br/>QUIC / UDP"]
+    SELECT -->|"TCP fallback"| XC["VLESS + XHTTP<br/>REALITY / TCP"]
+
+    HC --> OUT["Selected physical egress / system routing"]
+    XC --> OUT
+    OUT --> WAN["Public network / NAT"]
+    WAN -->|"Host installation"| OUTER["Server outer decapsulation<br/>Hysteria 2 or Xray"]
+    WAN -->|"Kubernetes deployment"| K8S["Kubernetes Service"]
+    K8S --> OUTER
+    OUTER --> OVS["OpenVPN server<br/>Loopback TCP 1194 by default<br/>Decryption and internal routing"]
+
+    OVS -->|"To the server"| TUN["Server TUN / network stack"]
+    TUN --> SERVICE["Local services / management gateway"]
+
+    OVS -->|"To another client"| PEER["Peer OpenVPN session<br/>Re-encrypt packets"]
+    PEER --> TRANSPORT["Peer's selected outer transport<br/>HY2 / UDP or TCP fallback"]
+    TRANSPORT --> CLIENT["Peer client<br/>Outer decapsulation → OpenVPN decryption"]
+    CLIENT --> PEERTAP["Peer virtual adapter"]
+    PEERTAP --> PEERAPP["Peer application"]
 ```
 
-Importing a bundle prepares a local identity. The first **Connect** enrolls it and obtains a server-confirmed address. Devices then reach each other by virtual IP through the server. Switching outer paths rebuilds OpenVPN; existing application sessions may break. A healthy TCP session is retained when UDP returns.
+OpenVPN encrypts application IPv4 packets before they pass through the selected outer transport. Each OpenVPN data connection uses one outer path at a time. Switching paths rebuilds the connection and may interrupt existing application sessions. Enrollment, address requests and configuration synchronization reach the server's loopback control API through the same outer transports. Only the outer TCP/UDP ports are exposed publicly.
 
-Only configured outer TCP/UDP ports are public. OpenVPN and administrative endpoints are not public proxies. The outer allowlists end with an explicit deny.
+## Server setup
 
-## Get started
+The following steps are for a new deployment. When upgrading an existing installation, preserve the CA, REALITY keys, virtual subnet, device identities and persistent state, and follow the upgrade procedure in the relevant installation guide.
 
-### Windows client
+### Linux
 
-1. Use Windows 10/11 x64. Download [eqlink-client-1.0.0.exe](https://github.com/chens32/eqlink/releases/download/v1.0.0/eqlink-client-1.0.0.exe) and compare its SHA-256 with the GitHub release asset digest.
-2. Run the installer with administrator approval. The bundle installs EqLink and handles the pinned official OpenVPN prerequisite; uninstalling EqLink preserves OpenVPN and unrelated configurations.
-3. Obtain the current v2 `.eqlink` bundle privately from your administrator. Import it under **设备与诊断**, keep automatic addressing or request a static address, then select **连接**.
-4. If another TUN controls routing/DNS, select a physical egress interface and dedicated DNS under connection settings. Keep the other TUN running.
-5. Contact peers using the assigned virtual IPs. Optional mappings such as `10.88.0.20 service.example.internal` can be saved under **域名覆写**.
+1. Prepare a Debian/Ubuntu host running systemd on amd64 or arm64, with `/dev/net/tun` available.
+2. Download the `eqlink-server` archive for your architecture from [Releases](https://github.com/chens32/eqlink/releases). Verify the release asset's SHA-256, extract the archive and enter the extracted directory. See the [Kubernetes installation guide](docs/kubernetes-installation.md) for download and verification examples.
+3. Install the host dependencies and confirm that OpenVPN is version 2.6 or later:
 
-The GUI currently uses Simplified Chinese. The installer contains the .NET runtime. The current installer is unsigned. A universal bundle is a reusable enrollment credential: anyone holding an active bundle can register a new identity. Do not upload it to issues or Git.
+   ```bash
+   sudo apt-get update
+   sudo apt-get install openvpn openssl iproute2 python3
+   ```
 
-### Linux server
+   The server package includes the .NET runtime; the .NET SDK is not required. Minimal systems also need the runtime's native system libraries, including ICU.
 
-Use Debian/Ubuntu amd64 or arm64 with TUN, OpenVPN 2.6+, OpenSSL, iproute2 and systemd. Installation and network configuration need root/sudo. Use [server installation](docs/server-installation.md) for host deployment. For Kubernetes/k3s, build an image from the same server archive and follow the [installation guide](docs/kubernetes-installation.md).
+4. Place the HY2 certificate and private key in a directory the service can read, such as `/etc/eqlink-tls`. The example configuration uses `tls.crt` and `tls.key` in that directory. In the extracted directory, prepare the REALITY keys and private settings file:
 
-Choose a non-overlapping private IPv4 `/24`, a public hostname and HY2 TLS certificate. High-port TCP/UDP NAT is supported. Existing deployments must preserve their CA, REALITY keys, persistent identities and external gateway extensions through a reviewed upgrade/rollback plan.
+   ```bash
+   chmod 0755 EqLink.Server hysteria xray
+   sudo install -d -m 0700 /root/eqlink-private
+   sudo sh -c 'umask 077; ./xray x25519 > /root/eqlink-private/reality-keys.txt'
+   sudo install -m 0600 server-settings.example.json \
+     /root/eqlink-private/server-settings.json
+   sudoedit /root/eqlink-private/server-settings.json
+   ```
 
-## Traffic and protection boundaries
+   Set the public hostname, TCP/UDP ports, virtual subnet, HY2 certificate paths and REALITY parameters. Copy the generated `PrivateKey` and `Password (PublicKey)` values into `realityPrivateKey` and `realityPublicKey`, respectively, replacing the example values. The example uses TCP `30443`, UDP `30444` and the virtual subnet `10.88.0.0/24`.
+5. Install and check the service from the extracted directory:
 
-- The current network is IPv4-only, single-server and device-to-device. It does not provide arbitrary LAN routing, overlapping-site routing, global Internet egress, peer discovery or server HA.
-- WFP blocks the configured virtual subnet outside the confirmed EqLink adapter. Administrators can change protection. Explicit application proxies that receive a hostname/request before an IP connection are outside this subnet-filtering boundary.
-- Domain overrides maintain an EqLink-owned block in the Windows hosts file. Other entries are preserved; conflicts are rejected. Applications using their own DNS/DoH or a remote proxy may bypass system resolution. Overrides remain applied while the service runs, including while the VPN is disconnected.
-- TCP count is the local machine's established overlay TCP connections, not the server's online-device count. Rates measure virtual-interface bytes, not encrypted outer overhead.
-- Coexistence tests and saved captures do not guarantee immunity to all third-party routing changes or resistance to detection/blocking.
+   ```bash
+   sudo bash install-server.sh /root/eqlink-private/server-settings.json
+   sudo systemctl status eqlink.service --no-pager
+   sudo /usr/local/bin/eqlink-server inspect --json
+   ```
+
+   The installer creates `eqlink.service` and stores persistent state in `/etc/eqlink`. Allow or forward only the configured outer TCP/UDP ports through the firewall and router. Keep the OpenVPN, control, authentication and management loopback ports off the public network.
+6. Generate a universal enrollment bundle and distribute it privately to clients:
+
+   ```bash
+   sudo /usr/local/bin/eqlink-server enrollment-create \
+     --name network --bundle /root/eqlink-private/network.eqlink
+   ```
+
+   If HY2 uses a private CA, the bundle also needs the public root certificate with a fingerprint verified by the administrator. Multiple devices can enroll with the same bundle, each generating an independent identity. Anyone holding an active bundle can request a new identity, so treat it as a credential.
+
+See [Linux server installation](docs/server-installation.md) for complete configuration, service management and handling of existing installations.
+
+### Kubernetes deployment
+
+This example uses k3s, an ARM64 node and `v1.0.0`. For AMD64 nodes, use the corresponding server archive, image platform and tag. The node needs an allocatable TUN device-plugin resource, a usable StorageClass/PVC and permission for the Pod to use `NET_ADMIN`.
+
+1. Obtain the repository source and work from its root directory. Prepare Git, Python 3, curl, jq, Docker Buildx and a server archive matching the target node's architecture with its SHA-256 verified. Prefer a build host of the same architecture; cross-architecture builds also require QEMU/binfmt support.
+2. Copy the server archive into the image build directory, then build and export the image. This directory should contain only the public server archive and the helper script shown below:
+
+   ```bash
+   VERSION=1.0.0
+   ARCH=arm64
+   IMAGE="docker.io/eqlink/server:${VERSION}-${ARCH}"
+   CONTEXT="artifacts/kubernetes-image-${VERSION}-${ARCH}"
+   mkdir -p "$CONTEXT"
+   cp "/path/to/eqlink-server-${ARCH}-${VERSION}.tar.gz" "$CONTEXT/"
+   cp packaging/k3s/device-request.py "$CONTEXT/"
+   docker buildx build --load --platform "linux/$ARCH" \
+     --build-arg "SERVER_ARCHIVE=eqlink-server-${ARCH}-${VERSION}.tar.gz" \
+     --tag "$IMAGE" --file packaging/kubernetes/Dockerfile "$CONTEXT"
+   docker save --output "artifacts/eqlink-server-${ARCH}-image.tar" "$IMAGE"
+   sha256sum "artifacts/eqlink-server-${ARCH}-image.tar"
+   ```
+
+3. Transfer the image tar to the selected k3s node, verify its SHA-256 and import it into that node's containerd:
+
+   ```bash
+   sudo k3s ctr --namespace k8s.io images import /path/to/eqlink-server-arm64-image.tar
+   sudo k3s crictl inspecti docker.io/eqlink/server:1.0.0-arm64
+   ```
+
+   The deployment uses `imagePullPolicy: Never`, so the image must already exist on the target node. For other Kubernetes distributions, import it into the CRI actually used by that node.
+4. Generate the deployment configuration on a management machine with cluster administration access. Keep certificates, private keys and the output directory outside the repository. Use the `xray` binary from the server archive matching the management machine's architecture. Replace the node, hostname, certificate paths, StorageClass and TUN resource name with your actual values:
+
+   ```bash
+   umask 077
+   mkdir -p "$HOME/eqlink-private"
+   python3 packaging/k3s/deploy.py \
+     --node YOUR_NODE --arch arm64 \
+     --image docker.io/eqlink/server:1.0.0-arm64 \
+     --namespace eqlink-test --storage-class local-path \
+     --public-host vpn.example.net --tls-server-name vpn.example.net \
+     --tls-cert /private/tls.crt --tls-key /private/tls.key \
+     --overlay 10.88.0.0/24 --tcp-port 30443 --udp-port 30444 \
+     --tun-resource example.com/tun --xray /private/tools/xray \
+     --output "$HOME/eqlink-private/rendered" --render-only
+   ```
+
+5. Review the generated private configuration and confirm the node, architecture, storage and ports. Run the same command again without `--render-only` to perform cluster preflight checks and deploy. The initial deployment entry point refuses to overwrite an existing EqLink Deployment; use the [upgrade procedure](docs/kubernetes-installation.md) for existing environments.
+6. Allow or forward public TCP `30443` and UDP `30444` to the fixed node hosting the Pod, or to its VIP. Keep the outer ports consistent with the configuration. Check the deployment:
+
+   ```bash
+   kubectl -n eqlink-test rollout status deployment/eqlink-server --timeout=300s
+   kubectl -n eqlink-test get pods -l app=eqlink-server -o wide
+   kubectl -n eqlink-test exec deployment/eqlink-server -c server -- EqLink.Server inspect --json
+   ```
+
+7. Generate the universal enrollment bundle on the management machine and distribute it privately:
+
+   ```bash
+   umask 077
+   python3 packaging/k3s/devices.py enrollment-create \
+     --namespace eqlink-test --name network \
+     --output "$HOME/eqlink-private/network.eqlink"
+   ```
+
+   If HY2 uses a private CA, add `--hysteria-ca /private/root-ca.cer --expected-ca-sha256 VERIFIED_CA_SHA256`. Replace the fingerprint placeholder with the SHA-256 of the certificate's DER content, independently verified by the administrator.
+
+See [Kubernetes / k3s installation](docs/kubernetes-installation.md) for complete image-building, node/TUN checks, enrollment, upgrade and rollback instructions. Once the Pod is Ready, use real clients to verify both outer transports and connectivity between virtual IPs.
+
+## Client connection setup
+
+### Windows
+
+1. On Windows 10/11 x64, download the `eqlink-client` installer from [Releases](https://github.com/chens32/eqlink/releases), verify the asset's SHA-256 and run it with administrator approval. The single installer handles EqLink and the pinned official OpenVPN dependency.
+2. Obtain the current v2 `.eqlink` universal enrollment bundle from your administrator and import it under **设备与诊断** (Devices and diagnostics). Importing generates a local identity and displays **已导入，待登记** (Imported, pending enrollment).
+3. Run the client as an administrator when changing settings. Under **连接设置** (Connection settings) → **虚拟地址** (Virtual address), keep automatic assignment or submit a static address request. The server confirms the final address. The default device address pool is `.10`–`.254` in the selected `/24`; administrators can reserve additional addresses.
+4. To coexist with another TUN application such as Meta, disconnect EqLink and open **连接设置** → **配置出口与 DNS…** (Configure egress and DNS) with administrator privileges. Select the actual physical adapter and an available dedicated IPv4 DNS server, then save before connecting. See [physical egress](docs/windows-physical-egress.md) for details.
+5. Under **连接设置**, choose **自动** (Automatic), **仅 UDP** (UDP only) or **仅 TCP** (TCP only), save the mode and select **连接** (Connect). The first connection completes online enrollment, issues independent credentials and confirms the address. Once connected, use the assigned virtual IPs to reach the server and other clients.
+6. To access services by hostname, save hostname-to-IPv4 mappings within the virtual subnet under **域名覆写** (Domain overrides). Settings are saved per network; see [domain overrides](docs/hosts-overrides.md).
+
+The GUI currently uses Simplified Chinese. The same active bundle can be imported on multiple machines, each enrolling an independent identity. `identity.dpapi` is bound to the original Windows machine and cannot be copied as another machine's client configuration.
+
+### Linux
+
+The current official releases provide a **Windows x64 client**. Linux supports server deployment and core component builds, but a native client installer that imports `.eqlink` bundles and a complete Linux client connection procedure are not yet available. The Linux server archive does not contain a Linux client; installing it does not provide client connectivity.
+
+The Windows WPF, WFP, TAP and DPAPI client components, together with `identity.dpapi`, cannot be moved directly to Linux. See [development](docs/development.md) and [validation status](docs/validation-status.md) for the supported development and acceptance scope.
 
 ## Build and test
 
-Use the SDK pinned by `global.json`, Python 3.12+ and PowerShell. Windows packaging uses checksum-pinned WiX and dependencies from `packaging/third_party.lock.json`.
+Use the SDK pinned by `global.json`, Python 3.12+ and PowerShell. Dependency versions, download sources and SHA-256 values are pinned in `packaging/third_party.lock.json`.
 
 ```powershell
 python tools/check-repository.py
@@ -75,16 +197,12 @@ pwsh -File packaging/build-server.ps1 -Arch amd64
 pwsh -File packaging/build-server.ps1 -Arch arm64
 ```
 
-ARM64 image validation additionally uses Debian WSL, an isolated rootfs and QEMU. See [development](docs/development.md), [acceptance tools](packaging/acceptance/README.zh-CN.md) and the release packaging scripts. Build outputs, state, credentials and private test evidence remain outside Git.
+See [development](docs/development.md) and [acceptance tools](packaging/acceptance/README.zh-CN.md) for more details.
 
-CI runs source/history secret checks, offline deployment checks, Linux/Windows core tests, Windows compilation and CodeQL. It does not deploy to your server, modify WFP, install/uninstall EqLink or establish real-network acceptance.
+CI covers source/history secret scanning, offline deployment checks, Windows/Linux core tests, Windows compilation and CodeQL. It does not automatically deploy a real server or run the installer/uninstaller lifecycle.
 
-## Project information
+## Maintenance and licensing
 
-- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
-- [v2 protocol](docs/protocol-v2.md) · [Domain overrides](docs/hosts-overrides.md) · [Physical egress](docs/windows-physical-egress.md)
-- [Release notes](docs/release-1.0.0.md) · [Release procedure](docs/releasing.md) · [Third-party components](packaging/THIRD_PARTY.md) · [License review](docs/licensing.md)
+[Contributing](CONTRIBUTING.md) · [Security reporting](SECURITY.md) · [Changelog](CHANGELOG.md) · [v2 protocol](docs/protocol-v2.md)
 
-## License
-
-EqLink's original source is **GPL-3.0-only**; see [LICENSE](LICENSE). OpenVPN, Hysteria, Xray, .NET, WiX and image packages retain their own licenses and corresponding-source requirements. See [license review](docs/licensing.md).
+EqLink's original source is **GPL-3.0-only**; see [LICENSE](LICENSE). Third-party components retain their own licenses. Distribution obligations, including OpenVPN's GPLv2 and Xray's MPL-2.0 requirements, still apply when EqLink uses GPLv3. See [license review](docs/licensing.md).
